@@ -4,10 +4,9 @@ IPQ50xx 设备的 OpenWrt 固件自动编译项目：用 GitHub Actions 自动�
 Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速**。
 
 > 本仓库只放编译脚本和配置，不放底包源码。编译时 workflow 会从底包仓库
-> 克隆指定提交的代码再编译。2026-11-02 第一次编译已成功（当时配置）；
-> 之后新增的特性（Argon、SQM、SmartDNS、O3 等）尚未经过
-> 编译验证，等下一次编译。Fullcone、cpufreq、arpbind 已确认不在
-> 钉住的 feed 里，已从配置里去掉（见“未确认事项”）。
+> 克隆指定提交的代码再编译。2026-11-03 第 5 次编译已成功（全部特性），
+> Release 已发布；上机实测（NAT/IPv6/WiFi/SQM/SmartDNS）仍待做。
+> Fullcone、cpufreq、arpbind 已确认不在钉住的 feed 里，已从配置里去掉。
 
 ## 固件特点
 
@@ -32,7 +31,8 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
   自动加一条重定向规则，所有 LAN 的 53 端口流量都转到
   路由器本机，客户端写死的 8.8.8.8 也绕不过去。
 - **Argon 主题**：luci-theme-argon + luci-app-argon-config，
-  编译时从上游拉最新 master（底包 feed 里没有）。
+  编译时从上游拉最新 master（底包 feed 里没有）；首次开机
+  自动设为 LuCI 默认主题（Bootstrap 也在镜像里，可随时换回）。
 - **小工具**：htop、zoneinfo-asia、openssh-sftp-server、
   ttyd、upnp。
 - **LuCI 保留**；initramfs 镜像保留，用于 UART + TFTP
@@ -190,10 +190,13 @@ profile/DTS，回来复制一份配置、往 workflow 矩阵里加一行、
 
 - 底包提交 pin：workflow 默认的 `base_ref` 已核对为 `c3po-tag-8021q`
   的 HEAD 提交（2026-10-31），rebase 时更新。
-- nss feed 的具体提交已知（第一次编译的 `feeds.buildinfo`：
-  `4fa071ab`），但还没钉进 `feeds.conf`（TODO）。
-- 之后新增的特性（Argon、SQM、SmartDNS、O3
-  等）尚未经过编译验证，等下一次编译；
+- feed 钉住：仓库 `feeds.conf` 已钉住第 5 次编译的全部 feed 提交
+  （packages 24f7c066、luci ae19cdfd、routing ea8633da、
+  telephony 9bcb6d71、video 4582d70f、nss 4fa071ab），工作流在
+  feeds update 前拷过去；之前 packages 和 luci 在第 1 次和第 5 次
+  编译之间都动过，不钉住就无法复现。
+- 新增的特性（Argon、SQM、SmartDNS、O3 等）已在第 5 次编译
+  （2026-11-03）中编出并发布，上机实测仍待做；
   bridge-mgr 已确认不在 ipq50xx 上（见上），已从配置里去掉；
   Fullcone、luci-app-cpufreq、luci-app-arpbind 已确认不在钉住的
   feed 里（packages/net 在 18af3f1b 没有 fullcone，luci 在

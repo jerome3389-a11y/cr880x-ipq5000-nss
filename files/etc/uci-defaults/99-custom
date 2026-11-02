@@ -11,6 +11,12 @@ grep -q '^net.ipv4.tcp_congestion_control=bbr$' /etc/sysctl.conf 2>/dev/null || 
   echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
 sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1
 
+# --- Argon as the default LuCI theme ---
+# Both Argon and Bootstrap are installed; Bootstrap is OpenWrt's
+# fallback default, so set Argon explicitly (reversible in LuCI).
+uci set luci.main.mediaurlbase='/luci-static/argon'
+uci commit luci
+
 # --- DNS hijack: redirect all LAN TCP/UDP 53 traffic to the router ---
 # This forces clients with hardcoded DNS (e.g. 8.8.8.8) through the
 # router's resolver (SmartDNS), so filtering and caching apply to them.

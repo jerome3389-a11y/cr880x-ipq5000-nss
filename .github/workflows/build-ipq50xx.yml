@@ -84,6 +84,15 @@ jobs:
           # Sanity: this must be the NSS tree, not plain OpenWrt.
           test -f README.ipq50xx.md
 
+      - name: Pin feeds to proven commits
+        run: |
+          cd openwrt
+          # Reproducibility: the base tree's feeds.conf.default tracks
+          # branches, and packages + luci moved between run #1 and run
+          # #5. Copy the repo's pinned feeds.conf (run #5's exact feed
+          # commits) so a rebuild pulls identical feed code.
+          cp ../feeds.conf feeds.conf
+
       - name: Restore ccache
         uses: actions/cache@v5
         with:
