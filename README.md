@@ -54,6 +54,29 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 首次启动会清掉它，否则 ECM 会被饿死）；交换机桥上的
 IGMP snooping 默认关；SQM 默认关。
 
+### NSS 加速功能表
+
+NSS 固件 12.5-210-MP，LOW 内存档。“包含”指编进了镜像，实机测试前
+一律标未测试，实测后逐项改；不包含的直接写不支持。
+
+| 功能 | 状态 | 说明 |
+|---|---|---|
+| ECM 核心加速 | 未测试 | NSS 连接管理器，NAT/路由流量的核心 offload 引擎 |
+| PPPoE 加速 | 未测试 | PPPoE 拨号流量的 offload |
+| VLAN 加速 | 未测试 | VLAN 流量的 offload |
+| DSA 交换加速 | 未测试 | DSA 拓扑下交换端口的 offload |
+| 以太网 MAC 加速 | 未测试 | 以太网口的 offload（dwmac） |
+| QCA8337 交换芯片加速 | 未测试 | 本板交换芯片的 offload |
+| RTL8367S 交换芯片加速 | 未测试 | 编进了镜像，但本板交换芯片是 QCA8337，板上是否起作用待实测 |
+| WiFi 加速 | 未测试 | 双频 WiFi 流量的 offload（wifili，ath11k NSS，QCN6122） |
+| IPv6 加速 | 未测试 | NSS IPv6 流量的 offload |
+| 虚拟接口加速 | 未测试 | NSS 虚拟接口支持 |
+| NSS 硬件队列 | 未测试 | SQM 走 NSS 硬件队列（nssfq_codel，conduit eth0） |
+| 桥接加速 | 不支持 | bridge-mgr 仅 ipq807x/ipq60xx 的 PPE 栈有，ipq50xx EDMA 树没有此模块 |
+
+注：内核 flow offloading 必须保持关闭（否则 ECM 看不到流量），它不属于
+NSS 加速；Fullcone NAT 也不属于 NSS，且钉住的 feed 里没有对应包，未包含。
+
 ## 底包（已确认）
 
 | 项目 | 取值 |
