@@ -141,50 +141,57 @@ jobs:
           fi
           make defconfig
           # Fail fast if defconfig silently dropped a required symbol.
-          # (A wrong device symbol is dropped this way, which would otherwise
+          # (A wrong symbol is dropped this way, which would otherwise
           # produce an image without the device or without NSS.)
-          grep -q '^CONFIG_TARGET_qualcommax_ipq50xx_DEVICE_${{ matrix.device }}=y$' .config
-          grep -q '^CONFIG_PACKAGE_nss-tools-dwmac=y$' .config
-          grep -q '^CONFIG_PACKAGE_nss-firmware=y$' .config
-          grep -q '^CONFIG_NSS_MEM_PROFILE_LOW=y$' .config
-          grep -q '^CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe=y$' .config
-          grep -q '^CONFIG_PACKAGE_ath11k-firmware-ipq5018-qcn6122=y$' .config
-          # ZRAM, BBR, ccache (added 2026-11-02 from the IPQ60xx study).
-          grep -q '^CONFIG_PACKAGE_zram-swap=y$' .config
-          grep -q '^CONFIG_PACKAGE_kmod-lib-lz4=y$' .config
-          grep -q '^CONFIG_KERNEL_ZRAM_BACKEND_LZ4=y$' .config
-          grep -q '^CONFIG_KERNEL_ZRAM_BACKEND_LZO=y$' .config
-          grep -q '^CONFIG_KERNEL_ZRAM_DEF_COMP_LZ4=y$' .config
-          grep -q '^CONFIG_PACKAGE_kmod-tcp-bbr=y$' .config
-          grep -q '^CONFIG_DEFAULT_TCP_CONG="bbr"$' .config
-          grep -q '^CONFIG_CCACHE=y$' .config
-          # NSS bridge-mgr is ipq807x/ipq60xx-only (see config comment),
-          # so it is deliberately NOT grepped here. nft-nat, Argon, small tools (added 2026-11-02).
-          grep -q '^CONFIG_PACKAGE_kmod-nft-nat=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-theme-argon=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-app-argon-config=y$' .config
-          grep -q '^CONFIG_PACKAGE_htop=y$' .config
-          grep -q '^CONFIG_PACKAGE_zoneinfo-asia=y$' .config
-          grep -q '^CONFIG_PACKAGE_openssh-sftp-server=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-app-cpufreq=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-app-ttyd=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-app-upnp=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-app-arpbind=y$' .config
+          # Report EVERY missing symbol at once: a bare grep -q dies on
+          # the first miss and never says which symbol failed, which is
+          # how runs #2 and #3 stayed undiagnosed.
+          fail=0
+          for pat in \
+            '^CONFIG_TARGET_qualcommax_ipq50xx_DEVICE_${{ matrix.device }}=y$' \
+            '^CONFIG_PACKAGE_nss-tools-dwmac=y$' \
+            '^CONFIG_PACKAGE_nss-firmware=y$' \
+            '^CONFIG_NSS_MEM_PROFILE_LOW=y$' \
+            '^CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe=y$' \
+            '^CONFIG_PACKAGE_ath11k-firmware-ipq5018-qcn6122=y$' \
+            '^CONFIG_PACKAGE_zram-swap=y$' \
+            '^CONFIG_PACKAGE_kmod-lib-lz4=y$' \
+            '^CONFIG_KERNEL_ZRAM_BACKEND_LZ4=y$' \
+            '^CONFIG_KERNEL_ZRAM_BACKEND_LZO=y$' \
+            '^CONFIG_KERNEL_ZRAM_DEF_COMP_LZ4=y$' \
+            '^CONFIG_PACKAGE_kmod-tcp-bbr=y$' \
+            '^CONFIG_KERNEL_DEFAULT_TCP_CONG="bbr"$' \
+            '^CONFIG_CCACHE=y$' \
+            '^CONFIG_PACKAGE_kmod-nft-nat=y$' \
+            '^CONFIG_PACKAGE_luci-theme-argon=y$' \
+            '^CONFIG_PACKAGE_luci-app-argon-config=y$' \
+            '^CONFIG_PACKAGE_htop=y$' \
+            '^CONFIG_PACKAGE_zoneinfo-asia=y$' \
+            '^CONFIG_PACKAGE_openssh-sftp-server=y$' \
+            '^CONFIG_PACKAGE_luci-app-cpufreq=y$' \
+            '^CONFIG_PACKAGE_luci-app-ttyd=y$' \
+            '^CONFIG_PACKAGE_luci-app-upnp=y$' \
+            '^CONFIG_PACKAGE_luci-app-arpbind=y$' \
+            '^CONFIG_PACKAGE_sqm-scripts-nss=y$' \
+            '^CONFIG_PACKAGE_luci-app-sqm=y$' \
+            '^CONFIG_PACKAGE_kmod-ifb=y$' \
+            '^CONFIG_PACKAGE_kmod-nft-fullcone=y$' \
+            '^CONFIG_PACKAGE_smartdns=y$' \
+            '^CONFIG_PACKAGE_luci-app-smartdns=y$' \
+            '^CONFIG_PACKAGE_ca-bundle=y$' \
+            ; do
+            grep -q "$pat" .config || { echo "MISSING: $pat"; fail=1; }
+          done
           # O3 flags: confirm the custom CPU flags survived defconfig.
-          grep -q 'mcpu=cortex-a53' .config
-          # SQM (nss), Fullcone, SmartDNS (added 2026-11-02).
-          grep -q '^CONFIG_PACKAGE_sqm-scripts-nss=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-app-sqm=y$' .config
-          grep -q '^CONFIG_PACKAGE_kmod-ifb=y$' .config
-          grep -q '^CONFIG_PACKAGE_kmod-nft-fullcone=y$' .config
-          grep -q '^CONFIG_PACKAGE_smartdns=y$' .config
-          grep -q '^CONFIG_PACKAGE_luci-app-smartdns=y$' .config
-          grep -q '^CONFIG_PACKAGE_ca-bundle=y$' .config
+          grep -q 'mcpu=cortex-a53' .config || { echo "MISSING: O3 mcpu flag"; fail=1; }
+          # NSS bridge-mgr is ipq807x/ipq60xx-only (see config comment),
+          # so it is deliberately NOT checked here.
           if [ "${{ inputs.firmware }}" = "12.5" ]; then
-            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_5=y$' .config
+            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_5=y$' .config || { echo "MISSING: NSS_FIRMWARE_VERSION_12_5"; fail=1; }
           else
-            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_2=y$' .config
+            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_2=y$' .config || { echo "MISSING: NSS_FIRMWARE_VERSION_12_2"; fail=1; }
           fi
+          [ "$fail" = 0 ] || exit 1
 
       - name: Install files overlay
         run: |
