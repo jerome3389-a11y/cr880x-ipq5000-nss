@@ -66,9 +66,11 @@ LED/按键、CR8808/CR8809。
    这一步就是防这个）。
 4. `make download`，然后 `make -j$(nproc)`，失败自动退回
    `make -j1 V=s` 打详细日志。
-5. 只上传 artifacts，不发 release：sysupgrade 镜像、
+5. 上传 artifacts，并发一个 Release：sysupgrade 镜像、
    initramfs 镜像（如果有）、`config.buildinfo`、
-   `feeds.buildinfo`、`sha256sums.txt`。
+   `feeds.buildinfo`、`sha256sums.txt`。Release 的 tag 是
+   `设备-日期-运行号-尝试号`，每次运行一个独立 Release，
+   重跑换新 tag。
 
 触发参数：
 
