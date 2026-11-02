@@ -8,8 +8,9 @@
 # from the base tree's feeds.conf.default (kuncy7/nss-packages, branch
 # ipq50xx-rebase); pinning the feed by commit is a TODO, see below.
 #
-# This workflow produces artifacts only. It does NOT publish releases.
-# Releases are a separate decision for the project owner.
+# On success, the workflow also publishes a GitHub Release with the
+# firmware and buildinfo files (one release per run; a re-run gets a new
+# tag because the run attempt is part of the tag).
 
 name: Build IPQ50xx NSS firmware
 
@@ -36,8 +37,9 @@ on:
         required: true
         default: "13e8bc914709c4794b3ec7b0421d2038386e697e"
 
+# Release creation needs contents:write; everything else here only reads.
 permissions:
-  contents: read
+  contents: write
 
 env:
   BASE_REPO: https://github.com/kuncy7/openwrt-nss-edma.git
@@ -58,7 +60,7 @@ jobs:
         device: ["${{ inputs.device }}"]
     steps:
       - name: Checkout scaffold repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install build dependencies
         run: |
@@ -151,8 +153,34 @@ jobs:
           ls -l ../artifacts
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ipq50xx-${{ matrix.device }}-nss-fw${{ inputs.firmware }}
           path: artifacts/
           if-no-files-found: error
+
+      - name: Set release tag
+        run: |
+          DATE="$(date +'%Y.%m.%d')"
+          echo "RELEASE_TAG=${{ matrix.device }}-${DATE}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+          echo "RELEASE_NAME=${{ matrix.device }} NSS FW ${{ inputs.firmware }} - ${DATE} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
+
+      - name: Publish release
+        if: success()
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          artifacts: "artifacts/*"
+          allowUpdates: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            CR8806 NSS firmware build (kernel 6.18, NSS firmware ${{ inputs.firmware }}).
+
+            - Device: ${{ matrix.device }}
+            - Base tree: kuncy7/openwrt-nss-edma, branch c3po-tag-8021q, commit ${{ inputs.base_ref }}
+            - Build: #${{ github.run_number }}, attempt ${{ github.run_attempt }}
+
+            Attached files: sysupgrade image, initramfs image (if built), config.buildinfo, feeds.buildinfo, sha256sums.txt. Exact feed commits are in feeds.buildinfo.
+
+            First install on CR8806: UART + TFTP, boot the initramfs image, then write factory.ubi to the other slot; later upgrades use sysupgrade.
