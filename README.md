@@ -33,8 +33,7 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 - **Argon 主题**：luci-theme-argon + luci-app-argon-config，
   编译时从上游拉最新 master（底包 feed 里没有）；首次开机
   自动设为 LuCI 默认主题（Bootstrap 也在镜像里，可随时换回）。
-- **小工具**：htop、zoneinfo-asia、openssh-sftp-server、
-  ttyd、upnp。
+- **小工具**：htop、zoneinfo-asia、upnp。
 - **LuCI 保留**；initramfs 镜像保留，用于 UART + TFTP
   首次安装。
 - **编译缓存**：工作流缓存 `openwrt/.ccache`，每次运行
