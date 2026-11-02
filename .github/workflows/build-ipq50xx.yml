@@ -182,6 +182,8 @@ jobs:
             '^CONFIG_PACKAGE_luci-app-sqm=y$' \
             '^CONFIG_PACKAGE_kmod-ifb=y$' \
             '^CONFIG_PACKAGE_ca-bundle=y$' \
+            '^CONFIG_PACKAGE_adblock=y$' \
+            '^CONFIG_PACKAGE_dnsmasq-full=y$' \
             ; do
             grep -q "$pat" .config || { echo "MISSING: $pat"; fail=1; }
           done

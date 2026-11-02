@@ -27,10 +27,15 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 - **NSS SQM 硬件队列**：sqm-scripts-nss（nssfq_codel，走
   conduit eth0，不走 DSA 口 wan）+ luci-app-sqm + ifb；
   默认关闭，在 LuCI 里启用并按实际带宽填写。
-- **dnsmasq 缓存 + DNS 劫持**：dnsmasq（底包默认解析器，
-  首次开机把缓存从默认 150 条调到 1000 条）；首次开机
+- **dnsmasq-full 缓存 + DNS 劫持**：dnsmasq-full（替代底包默认的 dnsmasq，
+  adblock 需要它带的 nftset 支持；配置通用，缓存设置不变），
+  首次开机把缓存从默认 150 条调到 1000 条；首次开机
   自动加一条重定向规则，所有 LAN 的 53 端口流量都转到
   路由器本机，客户端写死的 8.8.8.8 也绕不过去。
+- **Adblock**：adblock（不装 LuCI 界面，SSH 管），预设规则源：anti_ad（CN）、
+  adguard、yoyo、disconnect；规则列表首次开机联网后自动下载（会过期，
+  所以不 baked 进镜像）；XL/XXL/VAR 大源故意没开，规则多少直接影响
+  dnsmasq 内存，256MB 板子别贪大。
 - **Argon 主题**：luci-theme-argon + luci-app-argon-config，
   编译时从上游拉最新 master（底包 feed 里没有）；首次开机
   自动设为 LuCI 默认主题（Bootstrap 也在镜像里，可随时换回）。
