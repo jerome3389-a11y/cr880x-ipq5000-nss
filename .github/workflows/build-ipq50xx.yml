@@ -109,6 +109,17 @@ jobs:
           ./scripts/feeds install -a
           ./scripts/feeds list -r nss | grep -q qca-nss-drv && echo "nss feed OK"
 
+      - name: Fetch extra packages
+        run: |
+          cd openwrt
+          # Argon theme + config are not in the base feeds; track the
+          # latest upstream master like the IPQ60xx project does, then
+          # install them so defconfig can resolve the symbols.
+          rm -rf feeds/luci/themes/luci-theme-argon feeds/luci/applications/luci-app-argon-config
+          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git feeds/luci/themes/luci-theme-argon
+          git clone --depth 1 https://github.com/jerrykuku/luci-app-argon-config.git feeds/luci/applications/luci-app-argon-config
+          ./scripts/feeds install luci-theme-argon luci-app-argon-config
+
       - name: Apply device config
         run: |
           cd openwrt
@@ -144,6 +155,20 @@ jobs:
           grep -q '^CONFIG_PACKAGE_kmod-tcp-bbr=y$' .config
           grep -q '^CONFIG_DEFAULT_TCP_CONG="bbr"$' .config
           grep -q '^CONFIG_CCACHE=y$' .config
+          # NSS bridge-mgr + nft-nat, Argon, small tools (added 2026-11-02).
+          grep -q '^CONFIG_PACKAGE_kmod-qca-nss-drv-bridge-mgr=y$' .config
+          grep -q '^CONFIG_PACKAGE_kmod-nft-nat=y$' .config
+          grep -q '^CONFIG_PACKAGE_luci-theme-argon=y$' .config
+          grep -q '^CONFIG_PACKAGE_luci-app-argon-config=y$' .config
+          grep -q '^CONFIG_PACKAGE_htop=y$' .config
+          grep -q '^CONFIG_PACKAGE_zoneinfo-asia=y$' .config
+          grep -q '^CONFIG_PACKAGE_openssh-sftp-server=y$' .config
+          grep -q '^CONFIG_PACKAGE_luci-app-cpufreq=y$' .config
+          grep -q '^CONFIG_PACKAGE_luci-app-ttyd=y$' .config
+          grep -q '^CONFIG_PACKAGE_luci-app-upnp=y$' .config
+          grep -q '^CONFIG_PACKAGE_luci-app-arpbind=y$' .config
+          # O3 flags: confirm the custom CPU flags survived defconfig.
+          grep -q 'mcpu=cortex-a53' .config
           if [ "${{ inputs.firmware }}" = "12.5" ]; then
             grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_5=y$' .config
           else
@@ -209,3 +234,25 @@ jobs:
             Attached files: sysupgrade image, initramfs image (if built), config.buildinfo, feeds.buildinfo, sha256sums.txt. Exact feed commits are in feeds.buildinfo.
 
             First install on CR8806: UART + TFTP, boot the initramfs image, then write factory.ubi to the other slot; later upgrades use sysupgrade.
+
+      # Cleanup runs only when the build succeeded, and never fails the
+      # job: the release above is already published by then, and the user
+      # only needs the release to stay normal. Cache save happens in the
+      # cache step's post-action, after these steps, so the fresh cache
+      # survives while older entries are deleted.
+      - name: Delete old caches
+        continue-on-error: true
+        run: |
+          gh cache list --key "ipq50xx-${{ inputs.device }}-ccache-${{ inputs.base_ref }}-" --json key --jq '.[] | .key' | while read -r key; do
+            gh cache delete "$key"
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete old workflow runs
+        continue-on-error: true
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          retain_days: 2
+          keep_minimum_runs: 0
