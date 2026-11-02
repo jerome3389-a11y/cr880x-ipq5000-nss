@@ -170,12 +170,14 @@ jobs:
             '^CONFIG_KERNEL_ZRAM_DEF_COMP_LZ4=y$' \
             '^CONFIG_PACKAGE_kmod-tcp-bbr=y$' \
             '^CONFIG_CCACHE=y$' \
+            '^CONFIG_USE_LTO=y$' \
             '^CONFIG_PACKAGE_kmod-nft-nat=y$' \
             '^CONFIG_PACKAGE_luci-theme-argon=y$' \
             '^CONFIG_PACKAGE_luci-app-argon-config=y$' \
             '^CONFIG_PACKAGE_htop=y$' \
             '^CONFIG_PACKAGE_zoneinfo-asia=y$' \
             '^CONFIG_PACKAGE_luci-app-upnp=y$' \
+            '^CONFIG_PACKAGE_tcpdump-mini=y$' \
             '^CONFIG_PACKAGE_sqm-scripts-nss=y$' \
             '^CONFIG_PACKAGE_luci-app-sqm=y$' \
             '^CONFIG_PACKAGE_kmod-ifb=y$' \

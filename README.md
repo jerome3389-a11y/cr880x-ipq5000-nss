@@ -18,7 +18,8 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
   ipq807x/ipq60xx 的 PPE 栈，EDMA 树没有它），不要把它写进配置。
 - **编译优化**：`-O3` + Cortex-A53 crypto 指令集优化
  （`march=armv8-a+crypto+crc`，用户已验证可通过云编译）；
-  不开 LTO（已知容易把编译机内存撑爆）。
+  LTO 跟 IPQ6000 项目一样开了（`CONFIG_USE_LTO=y`）；该项目配置里也警告
+  LTO 吃编译机内存，报错先关它。
 - **TCP BBR**：BBR 模块 + 首次开机 sysctl 设为默认拥塞算法
   （内核配置里的默认值写法会被 defconfig 丢掉，见配置注释）。
 - **ZRAM**：zram-swap + LZ4 压缩（LZO 做备用），256 MB 板子
@@ -33,7 +34,7 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 - **Argon 主题**：luci-theme-argon + luci-app-argon-config，
   编译时从上游拉最新 master（底包 feed 里没有）；首次开机
   自动设为 LuCI 默认主题（Bootstrap 也在镜像里，可随时换回）。
-- **小工具**：htop、zoneinfo-asia、upnp。
+- **小工具**：htop、zoneinfo-asia、upnp、tcpdump-mini。
 - **LuCI 保留**；initramfs 镜像保留，用于 UART + TFTP
   首次安装。
 - **编译缓存**：工作流缓存 `openwrt/.ccache`，每次运行
