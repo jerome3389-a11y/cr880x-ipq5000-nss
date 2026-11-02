@@ -11,9 +11,11 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 ## 固件特点
 
 - **NSS 硬件加速（全平面）**：ECM、NSS 驱动、PPPoE、VLAN 管理、
-  Bridge 管理、DSA NSS、dwmac NSS、QCA8337 NSS、Wi-Fi offload、
+  DSA NSS、dwmac NSS、QCA8337 NSS、Wi-Fi offload、
   ath11k NSS，QCN6122 固件，256 MB 板子用 LOW 内存档，
   NSS 固件默认 **12.5-210-MP**（备选 12.2-156-MP.R）。
+  注意：bridge-mgr 不在 ipq50xx 上（qca-nss-clients 把它限定在
+  ipq807x/ipq60xx 的 PPE 栈，EDMA 树没有它），不要把它写进配置。
 - **编译优化**：`-O3` + Cortex-A53 crypto 指令集优化
  （`march=armv8-a+crypto+crc`，用户已验证可通过云编译）；
   不开 LTO（已知容易把编译机内存撑爆）。
@@ -194,8 +196,9 @@ profile/DTS，回来复制一份配置、往 workflow 矩阵里加一行、
   的 HEAD 提交（2026-10-31），rebase 时更新。
 - nss feed 的具体提交已知（第一次编译的 `feeds.buildinfo`：
   `4fa071ab`），但还没钉进 `feeds.conf`（TODO）。
-- 之后新增的特性（Argon、SQM、SmartDNS、Fullcone、O3、
-  bridge-mgr 等）尚未经过编译验证，等下一次编译；
+- 之后新增的特性（Argon、SQM、SmartDNS、Fullcone、O3
+  等）尚未经过编译验证，等下一次编译；
+  bridge-mgr 已确认不在 ipq50xx 上（见上），已从配置里去掉；
   `.config` 里的符号名 workflow 会在 defconfig 后逐项核对，
   核对不过就失败，不会静默出一个缺功能的包。
 - factory.ubi 的产出：按 UbiFit 默认规则会产，工作流已把它

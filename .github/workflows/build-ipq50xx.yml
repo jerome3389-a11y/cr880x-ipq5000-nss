@@ -113,12 +113,15 @@ jobs:
         run: |
           cd openwrt
           # Argon theme + config are not in the base feeds; track the
-          # latest upstream master like the IPQ60xx project does, then
-          # install them so defconfig can resolve the symbols.
-          rm -rf feeds/luci/themes/luci-theme-argon feeds/luci/applications/luci-app-argon-config
-          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git feeds/luci/themes/luci-theme-argon
-          git clone --depth 1 https://github.com/jerrykuku/luci-app-argon-config.git feeds/luci/applications/luci-app-argon-config
-          ./scripts/feeds install luci-theme-argon luci-app-argon-config
+          # latest upstream master like the IPQ60xx project does.
+          # Clone into package/, NOT feeds/: the build system picks up
+          # package/ automatically, while ./scripts/feeds install only
+          # works for packages registered in a feed index, so a manual
+          # clone into feeds/ warns "No feed for package" and the
+          # symbols get dropped by defconfig (this failed run #2).
+          rm -rf package/luci-theme-argon package/luci-app-argon-config
+          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
+          git clone --depth 1 https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config
 
       - name: Apply device config
         run: |
@@ -155,8 +158,8 @@ jobs:
           grep -q '^CONFIG_PACKAGE_kmod-tcp-bbr=y$' .config
           grep -q '^CONFIG_DEFAULT_TCP_CONG="bbr"$' .config
           grep -q '^CONFIG_CCACHE=y$' .config
-          # NSS bridge-mgr + nft-nat, Argon, small tools (added 2026-11-02).
-          grep -q '^CONFIG_PACKAGE_kmod-qca-nss-drv-bridge-mgr=y$' .config
+          # NSS bridge-mgr is ipq807x/ipq60xx-only (see config comment),
+          # so it is deliberately NOT grepped here. nft-nat, Argon, small tools (added 2026-11-02).
           grep -q '^CONFIG_PACKAGE_kmod-nft-nat=y$' .config
           grep -q '^CONFIG_PACKAGE_luci-theme-argon=y$' .config
           grep -q '^CONFIG_PACKAGE_luci-app-argon-config=y$' .config
