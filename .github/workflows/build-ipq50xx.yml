@@ -179,8 +179,6 @@ jobs:
             '^CONFIG_PACKAGE_sqm-scripts-nss=y$' \
             '^CONFIG_PACKAGE_luci-app-sqm=y$' \
             '^CONFIG_PACKAGE_kmod-ifb=y$' \
-            '^CONFIG_PACKAGE_smartdns=y$' \
-            '^CONFIG_PACKAGE_luci-app-smartdns=y$' \
             '^CONFIG_PACKAGE_ca-bundle=y$' \
             ; do
             grep -q "$pat" .config || { echo "MISSING: $pat"; fail=1; }

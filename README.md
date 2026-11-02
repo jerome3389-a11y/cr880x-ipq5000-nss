@@ -5,7 +5,7 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 
 > 本仓库只放编译脚本和配置，不放底包源码。编译时 workflow 会从底包仓库
 > 克隆指定提交的代码再编译。2026-11-03 第 5 次编译已成功（全部特性），
-> Release 已发布；上机实测（NAT/IPv6/WiFi/SQM/SmartDNS）仍待做。
+> Release 已发布；上机实测（NAT/IPv6/WiFi/SQM/dnsmasq 缓存）仍待做。
 > Fullcone、cpufreq、arpbind 已确认不在钉住的 feed 里，已从配置里去掉。
 
 ## 固件特点
@@ -26,8 +26,8 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 - **NSS SQM 硬件队列**：sqm-scripts-nss（nssfq_codel，走
   conduit eth0，不走 DSA 口 wan）+ luci-app-sqm + ifb；
   默认关闭，在 LuCI 里启用并按实际带宽填写。
-- **SmartDNS + DNS 劫持**：SmartDNS（带缓存的解析器）+
-  luci-app-smartdns + ca-bundle（加密上游用）；首次开机
+- **dnsmasq 缓存 + DNS 劫持**：dnsmasq（底包默认解析器，
+  首次开机把缓存从默认 150 条调到 1000 条）；首次开机
   自动加一条重定向规则，所有 LAN 的 53 端口流量都转到
   路由器本机，客户端写死的 8.8.8.8 也绕不过去。
 - **Argon 主题**：luci-theme-argon + luci-app-argon-config，
@@ -48,7 +48,7 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
   Release 文件和运行记录分开存，清理不动 Release。
 - **首次开机脚本**：仓库 `files/` 目录会打进镜像，
   `files/etc/uci-defaults/99-custom` 在首次开机时设置
-  BBR 默认、DNS 劫持规则并启用 SmartDNS，跑完自动删除。
+  BBR 默认、DNS 劫持规则并调大 dnsmasq 缓存，跑完自动删除。
 
 默认说明：内核 flow offloading（flowtable）必须关（底包
 首次启动会清掉它，否则 ECM 会被饿死）；交换机桥上的
@@ -94,7 +94,7 @@ IPQ5018 的树，且已有 CR8806 的 profile。官方 OpenWrt 25.12（6.12）
 
 以下在 CR8806 上明确**未测试**（不要在发布说明里承诺）：
 NAT/路由模式吞吐、IPv6、多个 Wi-Fi 客户端、LED/按键、
-SQM、SmartDNS 的实际效果。
+SQM、dnsmasq 缓存的实际效果。
 
 ## 编译是怎么跑的
 
@@ -206,5 +206,5 @@ profile/DTS，回来复制一份配置、往 workflow 矩阵里加一行、
 - factory.ubi 的产出：按 UbiFit 默认规则会产，工作流已把它
   列为强制 artifact，下次编译验证。
 - CR8806 上机功能（NAT/IPv6/多客户端/WiFi/SQM/
-  SmartDNS）尚未实测。
+  dnsmasq 缓存）尚未实测。
 - m79 A/B 的区别仍无公开定义。
