@@ -37,9 +37,12 @@ on:
         required: true
         default: "13e8bc914709c4794b3ec7b0421d2038386e697e"
 
-# Release creation needs contents:write; everything else here only reads.
+# Release creation needs contents:write; the ccache step needs actions:write
+# for cache save and restore (an explicit permissions block otherwise
+# leaves the actions scope at none and the cache calls fail).
 permissions:
   contents: write
+  actions: write
 
 env:
   BASE_REPO: https://github.com/kuncy7/openwrt-nss-edma.git
@@ -65,7 +68,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+          sudo apt-get install -y build-essential ccache clang flex bison g++ gawk \
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3-setuptools rsync swig unzip zlib1g-dev file wget \
             libelf-dev
@@ -80,6 +83,19 @@ jobs:
           git log --oneline -1
           # Sanity: this must be the NSS tree, not plain OpenWrt.
           test -f README.ipq50xx.md
+
+      - name: Restore ccache
+        uses: actions/cache@v5
+        with:
+          # Unique key per run so a fresh cache is always saved; the
+          # restore-keys prefix falls back to the latest previous cache.
+          # GitHub evicts least-recently-used caches past the 10 GB repo
+          # quota, so no explicit cleanup step is needed.
+          key: ipq50xx-${{ inputs.device }}-ccache-${{ inputs.base_ref }}-${{ github.run_id }}
+          restore-keys: |
+            ipq50xx-${{ inputs.device }}-ccache-${{ inputs.base_ref }}-
+          path: |
+            openwrt/.ccache
 
       - name: Update and install feeds
         run: |
@@ -119,6 +135,15 @@ jobs:
           grep -q '^CONFIG_NSS_MEM_PROFILE_LOW=y$' .config
           grep -q '^CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe=y$' .config
           grep -q '^CONFIG_PACKAGE_ath11k-firmware-ipq5018-qcn6122=y$' .config
+          # ZRAM, BBR, ccache (added 2026-11-02 from the IPQ60xx study).
+          grep -q '^CONFIG_PACKAGE_zram-swap=y$' .config
+          grep -q '^CONFIG_PACKAGE_kmod-lib-lz4=y$' .config
+          grep -q '^CONFIG_KERNEL_ZRAM_BACKEND_LZ4=y$' .config
+          grep -q '^CONFIG_KERNEL_ZRAM_BACKEND_LZO=y$' .config
+          grep -q '^CONFIG_KERNEL_ZRAM_DEF_COMP_LZ4=y$' .config
+          grep -q '^CONFIG_PACKAGE_kmod-tcp-bbr=y$' .config
+          grep -q '^CONFIG_DEFAULT_TCP_CONG="bbr"$' .config
+          grep -q '^CONFIG_CCACHE=y$' .config
           if [ "${{ inputs.firmware }}" = "12.5" ]; then
             grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_5=y$' .config
           else
