@@ -215,10 +215,13 @@ jobs:
           cd openwrt
           cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*sysupgrade.bin ../artifacts/ 2>/dev/null || true
           cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*initramfs* ../artifacts/ 2>/dev/null || true
+          cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*factory.ubi ../artifacts/ 2>/dev/null || true
           cp bin/targets/qualcommax/ipq50xx/config.buildinfo ../artifacts/ 2>/dev/null || true
           cp bin/targets/qualcommax/ipq50xx/feeds.buildinfo ../artifacts/ 2>/dev/null || true
-          # The sysupgrade image is mandatory; fail loudly without it.
+          # The sysupgrade image and the factory image are mandatory;
+          # fail loudly without them so a release is never incomplete.
           ls ../artifacts/*sysupgrade.bin
+          ls ../artifacts/*factory.ubi
           cd ../artifacts && sha256sum * > sha256sums.txt
           ls -l ../artifacts
 
@@ -251,7 +254,7 @@ jobs:
             - Base tree: kuncy7/openwrt-nss-edma, branch c3po-tag-8021q, commit ${{ inputs.base_ref }}
             - Build: #${{ github.run_number }}, attempt ${{ github.run_attempt }}
 
-            Attached files: sysupgrade image, initramfs image (if built), config.buildinfo, feeds.buildinfo, sha256sums.txt. Exact feed commits are in feeds.buildinfo.
+            Attached files: sysupgrade image, factory image, initramfs image (if built), config.buildinfo, feeds.buildinfo, sha256sums.txt. Exact feed commits are in feeds.buildinfo.
 
             First install on CR8806: UART + TFTP, boot the initramfs image, then write factory.ubi to the other slot; later upgrades use sysupgrade.
 
