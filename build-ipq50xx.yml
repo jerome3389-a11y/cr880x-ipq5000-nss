@@ -1,0 +1,158 @@
+# Build IPQ50xx NSS firmware
+#
+# Builds OpenWrt firmware with Qualcomm NSS acceleration for IPQ50xx devices
+# from the kuncy7/openwrt-nss-edma tree (branch c3po-tag-8021q, kernel 6.18).
+#
+# This repository holds only the build scripts and configs. The base tree is
+# cloned at build time at a pinned commit (see base_ref). The nss feed comes
+# from the base tree's feeds.conf.default (kuncy7/nss-packages, branch
+# ipq50xx-rebase); pinning the feed by commit is a TODO, see below.
+#
+# This workflow produces artifacts only. It does NOT publish releases.
+# Releases are a separate decision for the project owner.
+
+name: Build IPQ50xx NSS firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Device profile to build (must have a mapping in the 'Apply device config' step)"
+        required: true
+        default: "xiaomi_cr8806"
+        type: choice
+        options:
+          - xiaomi_cr8806
+      firmware:
+        description: "NSS firmware line. 12.5 is the default; 12.2 is the fallback. The driver is built for the firmware shipped, never mix them."
+        required: true
+        default: "12.5"
+        type: choice
+        options:
+          - "12.5"
+          - "12.2"
+      base_ref:
+        description: "kuncy7/openwrt-nss-edma commit to build. Default is the HEAD of c3po-tag-8021q as seen on the repo page on 2026-11-02; refresh it when rebasing."
+        required: true
+        default: "13e8bc914709c4794b3ec7b0421d2038386e697e"
+
+permissions:
+  contents: read
+
+env:
+  BASE_REPO: https://github.com/kuncy7/openwrt-nss-edma.git
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    name: Build ${{ inputs.device }} (NSS FW ${{ inputs.firmware }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      # To add a device later: add its profile name here AND a mapping line in
+      # the "Apply device config" step AND a config file in configs/.
+      # Example once CR8808/CR8809 profiles exist in the base tree:
+      #   matrix:
+      #     device: [xiaomi_cr8806, xiaomi_cr8808, xiaomi_cr8809]
+      matrix:
+        device: ["${{ inputs.device }}"]
+    steps:
+      - name: Checkout scaffold repo
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-setuptools rsync swig unzip zlib1g-dev file wget \
+            libelf-dev
+
+      - name: Clone base tree at pinned commit
+        run: |
+          git init openwrt
+          cd openwrt
+          git remote add origin "$BASE_REPO"
+          git fetch --depth 1 origin "${{ inputs.base_ref }}"
+          git checkout FETCH_HEAD
+          git log --oneline -1
+          # Sanity: this must be the NSS tree, not plain OpenWrt.
+          test -f README.ipq50xx.md
+
+      - name: Update and install feeds
+        run: |
+          cd openwrt
+          # feeds.conf.default of the base tree already names the nss feed
+          # (kuncy7/nss-packages, branch ipq50xx-rebase).
+          # TODO: pin the nss feed by commit. After a known-good build, copy
+          # the nss line from feeds.buildinfo into a feeds.conf, commit it in
+          # this repo, and copy it over feeds.conf.default here.
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          ./scripts/feeds list -r nss | grep -q qca-nss-drv && echo "nss feed OK"
+
+      - name: Apply device config
+        run: |
+          cd openwrt
+          # Map device profile -> config file in this repo.
+          # Add one line per new device here.
+          case "${{ matrix.device }}" in
+            xiaomi_cr8806) CONFIG_FILE="cr8806-256m.config" ;;
+            *) echo "No config mapping for device: ${{ matrix.device }}" >&2; exit 1 ;;
+          esac
+          cp "../configs/${CONFIG_FILE}" .config
+          # Firmware line selection. The driver is built for the firmware
+          # shipped, so the two lines must never both be enabled.
+          if [ "${{ inputs.firmware }}" = "12.2" ]; then
+            sed -i 's/^CONFIG_NSS_FIRMWARE_VERSION_12_5=y/# CONFIG_NSS_FIRMWARE_VERSION_12_5 is not set/' .config
+            echo 'CONFIG_NSS_FIRMWARE_VERSION_12_2=y' >> .config
+          fi
+          make defconfig
+          # Fail fast if defconfig silently dropped a required symbol.
+          # (A wrong device symbol is dropped this way, which would otherwise
+          # produce an image without the device or without NSS.)
+          grep -q '^CONFIG_TARGET_qualcommax_ipq50xx_DEVICE_${{ matrix.device }}=y$' .config
+          grep -q '^CONFIG_PACKAGE_nss-tools-dwmac=y$' .config
+          grep -q '^CONFIG_PACKAGE_nss-firmware=y$' .config
+          grep -q '^CONFIG_NSS_MEM_PROFILE_LOW=y$' .config
+          grep -q '^CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe=y$' .config
+          grep -q '^CONFIG_PACKAGE_ath11k-firmware-ipq5018-qcn6122=y$' .config
+          if [ "${{ inputs.firmware }}" = "12.5" ]; then
+            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_5=y$' .config
+          else
+            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_2=y$' .config
+          fi
+
+      - name: Download sources
+        run: |
+          cd openwrt
+          make download -j"$(nproc)"
+          # Drop empty downloads so a truncated file cannot poison the build.
+          find dl -size -1024c -exec rm -f {} \;
+
+      - name: Build firmware
+        run: |
+          cd openwrt
+          echo "Build started: $(date)"
+          make -j"$(nproc)" || make -j1 V=s
+          echo "Build finished: $(date)"
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p artifacts
+          cd openwrt
+          cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*sysupgrade.bin ../artifacts/ 2>/dev/null || true
+          cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*initramfs* ../artifacts/ 2>/dev/null || true
+          cp bin/targets/qualcommax/ipq50xx/config.buildinfo ../artifacts/ 2>/dev/null || true
+          cp bin/targets/qualcommax/ipq50xx/feeds.buildinfo ../artifacts/ 2>/dev/null || true
+          # The sysupgrade image is mandatory; fail loudly without it.
+          ls ../artifacts/*sysupgrade.bin
+          cd ../artifacts && sha256sum * > sha256sums.txt
+          ls -l ../artifacts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipq50xx-${{ matrix.device }}-nss-fw${{ inputs.firmware }}
+          path: artifacts/
+          if-no-files-found: error
