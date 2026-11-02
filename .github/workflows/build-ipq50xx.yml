@@ -169,10 +169,30 @@ jobs:
           grep -q '^CONFIG_PACKAGE_luci-app-arpbind=y$' .config
           # O3 flags: confirm the custom CPU flags survived defconfig.
           grep -q 'mcpu=cortex-a53' .config
+          # SQM (nss), Fullcone, SmartDNS (added 2026-11-02).
+          grep -q '^CONFIG_PACKAGE_sqm-scripts-nss=y$' .config
+          grep -q '^CONFIG_PACKAGE_luci-app-sqm=y$' .config
+          grep -q '^CONFIG_PACKAGE_kmod-ifb=y$' .config
+          grep -q '^CONFIG_PACKAGE_kmod-nft-fullcone=y$' .config
+          grep -q '^CONFIG_PACKAGE_smartdns=y$' .config
+          grep -q '^CONFIG_PACKAGE_luci-app-smartdns=y$' .config
+          grep -q '^CONFIG_PACKAGE_ca-bundle=y$' .config
           if [ "${{ inputs.firmware }}" = "12.5" ]; then
             grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_5=y$' .config
           else
             grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_2=y$' .config
+          fi
+
+      - name: Install files overlay
+        run: |
+          cd openwrt
+          # Anything in this repo's files/ is baked into the image rootfs.
+          # uci-defaults scripts must be executable in the image, and the
+          # snapshot push stores them as 0644, so chmod them here.
+          if [ -d ../files ]; then
+            mkdir -p files
+            cp -r ../files/. files/
+            chmod +x files/etc/uci-defaults/* 2>/dev/null || true
           fi
 
       - name: Download sources
