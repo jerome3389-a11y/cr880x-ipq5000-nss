@@ -3,17 +3,13 @@
 # Runs once on first boot (the uci-defaults mechanism removes this file
 # afterwards). No set -e: a failed step must not abort the rest.
 
-# --- Fullcone NAT on the WAN zone (matched by network name, not index) ---
-i=0
-while uci -q get "firewall.@zone[$i]" >/dev/null 2>&1; do
-  net=$(uci -q get "firewall.@zone[$i].network")
-  case " $net " in
-    *" wan "*)
-      uci set "firewall.@zone[$i].fullcone=1"
-      ;;
-  esac
-  i=$((i + 1))
-done
+# --- TCP BBR as the default congestion control ---
+# Kernel-config default does not survive defconfig on this tree, so set
+# it here: persist in sysctl.conf for every boot, and apply live now
+# (the tcp_bbr module is already loaded via modules.d by this point).
+grep -q '^net.ipv4.tcp_congestion_control=bbr$' /etc/sysctl.conf 2>/dev/null || \
+  echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
+sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1
 
 # --- DNS hijack: redirect all LAN TCP/UDP 53 traffic to the router ---
 # This forces clients with hardcoded DNS (e.g. 8.8.8.8) through the

@@ -5,8 +5,9 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 
 > 本仓库只放编译脚本和配置，不放底包源码。编译时 workflow 会从底包仓库
 > 克隆指定提交的代码再编译。2026-11-02 第一次编译已成功（当时配置）；
-> 之后新增的特性（Argon、SQM、SmartDNS、Fullcone、O3 等）尚未经过
-> 编译验证，等下一次编译。
+> 之后新增的特性（Argon、SQM、SmartDNS、O3 等）尚未经过
+> 编译验证，等下一次编译。Fullcone、cpufreq、arpbind 已确认不在
+> 钉住的 feed 里，已从配置里去掉（见“未确认事项”）。
 
 ## 固件特点
 
@@ -19,15 +20,13 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 - **编译优化**：`-O3` + Cortex-A53 crypto 指令集优化
  （`march=armv8-a+crypto+crc`，用户已验证可通过云编译）；
   不开 LTO（已知容易把编译机内存撑爆）。
-- **TCP BBR**：默认拥塞算法为 BBR。
+- **TCP BBR**：BBR 模块 + 首次开机 sysctl 设为默认拥塞算法
+  （内核配置里的默认值写法会被 defconfig 丢掉，见配置注释）。
 - **ZRAM**：zram-swap + LZ4 压缩（LZO 做备用），256 MB 板子
   拿少量 CPU 换可用内存，缓解 OOM。
 - **NSS SQM 硬件队列**：sqm-scripts-nss（nssfq_codel，走
   conduit eth0，不走 DSA 口 wan）+ luci-app-sqm + ifb；
   默认关闭，在 LuCI 里启用并按实际带宽填写。
-- **Fullcone NAT**：kmod-nft-fullcone，首次开机自动给 WAN
-  zone 开 fullcone；刷机后可用
-  `nft list ruleset | grep fullcone` 验证。
 - **SmartDNS + DNS 劫持**：SmartDNS（带缓存的解析器）+
   luci-app-smartdns + ca-bundle（加密上游用）；首次开机
   自动加一条重定向规则，所有 LAN 的 53 端口流量都转到
@@ -35,7 +34,7 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 - **Argon 主题**：luci-theme-argon + luci-app-argon-config，
   编译时从上游拉最新 master（底包 feed 里没有）。
 - **小工具**：htop、zoneinfo-asia、openssh-sftp-server、
-  cpufreq、ttyd、upnp、arpbind。
+  ttyd、upnp。
 - **LuCI 保留**；initramfs 镜像保留，用于 UART + TFTP
   首次安装。
 - **编译缓存**：工作流缓存 `openwrt/.ccache`，每次运行
@@ -50,7 +49,7 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
   Release 文件和运行记录分开存，清理不动 Release。
 - **首次开机脚本**：仓库 `files/` 目录会打进镜像，
   `files/etc/uci-defaults/99-custom` 在首次开机时设置
-  Fullcone、DNS 劫持规则并启用 SmartDNS，跑完自动删除。
+  BBR 默认、DNS 劫持规则并启用 SmartDNS，跑完自动删除。
 
 默认说明：内核 flow offloading（flowtable）必须关（底包
 首次启动会清掉它，否则 ECM 会被饿死）；交换机桥上的
@@ -96,7 +95,7 @@ IPQ5018 的树，且已有 CR8806 的 profile。官方 OpenWrt 25.12（6.12）
 
 以下在 CR8806 上明确**未测试**（不要在发布说明里承诺）：
 NAT/路由模式吞吐、IPv6、多个 Wi-Fi 客户端、LED/按键、
-SQM、Fullcone、SmartDNS 的实际效果。
+SQM、SmartDNS 的实际效果。
 
 ## 编译是怎么跑的
 
@@ -164,9 +163,6 @@ grep -m1 ipv4_rx_pkts /sys/kernel/debug/qca-nss-drv/stats/ipv4
 nft list flowtables
 # 应该什么都不输出（有 flowtable 说明 flow offloading 还开着，ECM 会被饿死）
 
-nft list ruleset | grep fullcone
-# 应该有 fullcone 规则（验证 Fullcone 真生效）
-
 top
 # 满速流量下 idle 应该保持在 90% 以上
 ```
@@ -196,13 +192,17 @@ profile/DTS，回来复制一份配置、往 workflow 矩阵里加一行、
   的 HEAD 提交（2026-10-31），rebase 时更新。
 - nss feed 的具体提交已知（第一次编译的 `feeds.buildinfo`：
   `4fa071ab`），但还没钉进 `feeds.conf`（TODO）。
-- 之后新增的特性（Argon、SQM、SmartDNS、Fullcone、O3
+- 之后新增的特性（Argon、SQM、SmartDNS、O3
   等）尚未经过编译验证，等下一次编译；
   bridge-mgr 已确认不在 ipq50xx 上（见上），已从配置里去掉；
+  Fullcone、luci-app-cpufreq、luci-app-arpbind 已确认不在钉住的
+  feed 里（packages/net 在 18af3f1b 没有 fullcone，luci 在
+  5599f42b 没有 cpufreq/arpbind），已从配置里去掉；不要在没
+  核对 feed 的情况下把它们加回来。
   `.config` 里的符号名 workflow 会在 defconfig 后逐项核对，
   核对不过就失败，不会静默出一个缺功能的包。
 - factory.ubi 的产出：按 UbiFit 默认规则会产，工作流已把它
   列为强制 artifact，下次编译验证。
-- CR8806 上机功能（NAT/IPv6/多客户端/WiFi/SQM/Fullcone/
+- CR8806 上机功能（NAT/IPv6/多客户端/WiFi/SQM/
   SmartDNS）尚未实测。
 - m79 A/B 的区别仍无公开定义。
