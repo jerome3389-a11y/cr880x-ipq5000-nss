@@ -4,8 +4,55 @@ IPQ50xx 设备的 OpenWrt 固件自动编译项目：用 GitHub Actions 自动�
 Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速**。
 
 > 本仓库只放编译脚本和配置，不放底包源码。编译时 workflow 会从底包仓库
-> 克隆指定提交的代码再编译。**本脚手架尚未经过实际编译验证**，第一次
-> 运行前请先看“未确认事项”。
+> 克隆指定提交的代码再编译。2026-11-02 第一次编译已成功（当时配置）；
+> 之后新增的特性（Argon、SQM、SmartDNS、Fullcone、O3 等）尚未经过
+> 编译验证，等下一次编译。
+
+## 固件特点
+
+- **NSS 硬件加速（全平面）**：ECM、NSS 驱动、PPPoE、VLAN 管理、
+  Bridge 管理、DSA NSS、dwmac NSS、QCA8337 NSS、Wi-Fi offload、
+  ath11k NSS，QCN6122 固件，256 MB 板子用 LOW 内存档，
+  NSS 固件默认 **12.5-210-MP**（备选 12.2-156-MP.R）。
+- **编译优化**：`-O3` + Cortex-A53 crypto 指令集优化
+ （`march=armv8-a+crypto+crc`，用户已验证可通过云编译）；
+  不开 LTO（已知容易把编译机内存撑爆）。
+- **TCP BBR**：默认拥塞算法为 BBR。
+- **ZRAM**：zram-swap + LZ4 压缩（LZO 做备用），256 MB 板子
+  拿少量 CPU 换可用内存，缓解 OOM。
+- **NSS SQM 硬件队列**：sqm-scripts-nss（nssfq_codel，走
+  conduit eth0，不走 DSA 口 wan）+ luci-app-sqm + ifb；
+  默认关闭，在 LuCI 里启用并按实际带宽填写。
+- **Fullcone NAT**：kmod-nft-fullcone，首次开机自动给 WAN
+  zone 开 fullcone；刷机后可用
+  `nft list ruleset | grep fullcone` 验证。
+- **SmartDNS + DNS 劫持**：SmartDNS（带缓存的解析器）+
+  luci-app-smartdns + ca-bundle（加密上游用）；首次开机
+  自动加一条重定向规则，所有 LAN 的 53 端口流量都转到
+  路由器本机，客户端写死的 8.8.8.8 也绕不过去。
+- **Argon 主题**：luci-theme-argon + luci-app-argon-config，
+  编译时从上游拉最新 master（底包 feed 里没有）。
+- **小工具**：htop、zoneinfo-asia、openssh-sftp-server、
+  cpufreq、ttyd、upnp、arpbind。
+- **LuCI 保留**；initramfs 镜像保留，用于 UART + TFTP
+  首次安装。
+- **编译缓存**：工作流缓存 `openwrt/.ccache`，每次运行
+  存新缓存、前缀匹配恢复上一次；超 10 GB 由 GitHub 按
+  最久未用自动淘汰，另有删旧缓存步骤。
+- **自动发布**：每次成功编译发一个独立 Release，tag 是
+  `设备-日期-运行号-尝试号`；附带 sysupgrade 镜像、
+  factory 镜像、initramfs 镜像（如果有）、
+  `config.buildinfo`、`feeds.buildinfo`、`sha256sums.txt`。
+- **自动清理**：删旧缓存、删旧工作流（保留 2 天），
+  两步都设为失败不影响任务，清理失败不会导致发布失败；
+  Release 文件和运行记录分开存，清理不动 Release。
+- **首次开机脚本**：仓库 `files/` 目录会打进镜像，
+  `files/etc/uci-defaults/99-custom` 在首次开机时设置
+  Fullcone、DNS 劫持规则并启用 SmartDNS，跑完自动删除。
+
+默认说明：内核 flow offloading（flowtable）必须关（底包
+首次启动会清掉它，否则 ECM 会被饿死）；交换机桥上的
+IGMP snooping 默认关；SQM 默认关。
 
 ## 底包（已确认）
 
@@ -17,7 +64,6 @@ Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速
 | NSS 固件 | **12.5-210-MP**（默认）；备选 **12.2-156-MP.R** |
 | 目标 | `qualcommax/ipq50xx` |
 | 拓扑 | DSA（`nss.general.topology='dsa'`，底包默认） |
-| 发布形式 | sysupgrade 镜像（底包发布即如此）；首次安装见下 |
 
 为什么选这套：它是目前唯一同时做到最新内核（6.18）又真正加速
 IPQ5018 的树，且已有 CR8806 的 profile。官方 OpenWrt 25.12（6.12）
@@ -41,15 +87,14 @@ IPQ5018 的树，且已有 CR8806 的 profile。官方 OpenWrt 25.12（6.12）
 
 | 设备 | 状态 | 说明 |
 |---|---|---|
-| CR8806（M79） | ✅ 基线已就绪 | 底包 `256m` 组已有 `xiaomi_cr8806` profile；本仓库的 `configs/cr8806-256m.config` 就是它的基线配置。256 MB 内存，Linux 可见约 169 MiB，空闲时只剩 20–30 MiB，大包要先算内存账。 |
-| CR8808（M79 / M81） | ⏳ 待用户移植 | 底包和 fanha99 分支都明确“未测试”。CR8808 同时存在 M79 和 M81 两种主板，必须按板子分开做。 |
-| CR8809（多为 M79） | ⏳ 待用户移植 | 同上，未测试；移植前要先核对 FEM / caldata 是否与 CR8806 一致。 |
-| m79 A / m79 B | ❓ 未定义 | **没有任何公开资料定义 M79 的 A/B 区别。** 不要假设一个 m79 镜像能通吃 A 和 B；必须先从硬件（丝印、FEM 型号、ART 数据）定义清楚再写配置。 |
-| m81 | ⏳ 待用户移植 | m79 / m81 是主板版本，不是型号。m81 更接近 Redmi AX3000 全球版的行为，移植时不要直接把 CR8806（M79）的设置套上去。 |
+| CR8806（M79） | ✅ 基线，第一次编译成功 | 底包 `256m` 组已有 `xiaomi_cr8806` profile；本仓库的 `configs/cr8806-256m.config` 就是它的基线配置。256 MB 内存，Linux 可见约 169 MiB，空闲时只剩 20–30 MiB，大包要先算内存账；LuCI 已保留，若 OOM 先砍它。 |
+| CR8808 / CR8809 | ⏳ 待上机实测 | 底包里 cr8806 这个 profile 自带 ALT0=CR8808、ALT1=CR8809（同 M79、同 DTS `config@mp02.1`、128 MB NAND），理论上同一个镜像就能认，不用单独移植；但必须上机实测，不能只凭 ALT 就承诺。 |
+| m79 A / m79 B | ❓ 未定义 | **没有任何公开资料定义 M79 的 A/B 区别，底包里也没有 A/B 之分**（VARIANT 就是 M79）。不要假设一个 m79 镜像能通吃 A 和 B；实测时注意板子差异。 |
+| m81 | ⏳ 待确认 | m79 / m81 是主板版本，不是型号；底包里没有 m81 profile，移植时不要直接把 CR8806（M79）的设置套上去。 |
 
-以下在 CR8806 上明确**未测试**（fanha99 README 原话），不要在发布
-说明里承诺：NAT/路由模式吞吐、IPv6、多个 Wi-Fi 客户端、
-LED/按键、CR8808/CR8809。
+以下在 CR8806 上明确**未测试**（不要在发布说明里承诺）：
+NAT/路由模式吞吐、IPv6、多个 Wi-Fi 客户端、LED/按键、
+SQM、Fullcone、SmartDNS 的实际效果。
 
 ## 编译是怎么跑的
 
@@ -58,19 +103,26 @@ LED/按键、CR8808/CR8809。
 
 1. 克隆底包到 `base_ref` 指定的提交（默认是 2026-11-02 在底包
    主页上看到的 `c3po-tag-8021q` HEAD 提交）。
-2. `./scripts/feeds update -a && ./scripts/feeds install -a`，
+2. 恢复 ccache 缓存（`openwrt/.ccache`）。
+3. `./scripts/feeds update -a && ./scripts/feeds install -a`，
    并检查 nss feed 里有 `qca-nss-drv`。
-3. 把 `configs/<设备>.config` 拷成 `.config`，按 `firmware`
+4. 从上游拉 Argon 主题和配置（底包 feed 里没有），并安装。
+5. 把 `configs/<设备>.config` 拷成 `.config`，按 `firmware`
    输入选择 12.5 或 12.2，跑 `make defconfig`，然后逐项检查
    关键符号确实留下来了（符号名写错会被 defconfig 静默丢掉，
    这一步就是防这个）。
-4. `make download`，然后 `make -j$(nproc)`，失败自动退回
+6. 把仓库 `files/` 打进镜像（首次开机脚本等），
+   uci-defaults 脚本在镜像里需要可执行权限，工作流里处理。
+7. `make download`，然后 `make -j$(nproc)`，失败自动退回
    `make -j1 V=s` 打详细日志。
-5. 上传 artifacts，并发一个 Release：sysupgrade 镜像、
-   initramfs 镜像（如果有）、`config.buildinfo`、
-   `feeds.buildinfo`、`sha256sums.txt`。Release 的 tag 是
+8. 整理 artifacts：sysupgrade 镜像、factory 镜像、initramfs
+   镜像（如果有）、`config.buildinfo`、`feeds.buildinfo`、
+   `sha256sums.txt`；其中 sysupgrade 和 factory 是强制项，
+   缺了就失败，不会发一个不完整的 Release。
+9. 上传 artifacts，并发一个 Release（tag 是
    `设备-日期-运行号-尝试号`，每次运行一个独立 Release，
-   重跑换新 tag。
+   重跑换新 tag）。
+10. 删旧缓存、删旧工作流（保留 2 天），失败不影响任务。
 
 触发参数：
 
@@ -83,9 +135,10 @@ LED/按键、CR8808/CR8809。
 
 - 首次安装走 UART（115200 8N1）+ TFTP，启动 initramfs
   （`config@mp02.1`），把 factory.ubi 写到另一个 slot；之后
-  升级用 sysupgrade。底包的发布本身是 sysupgrade-only。
+  升级用 sysupgrade。
 - 双 slot 写错有变砖风险，操作前确认自己板子的 slot 布局，
-  不要照搬别板子的步骤。
+  不要照搬别板子的步骤；刷之前先备份原厂固件。
+- 首次开机先在 LuCI 里设 root 密码（OpenWrt 默认 root 没密码）。
 
 ## 装好后怎么验证 NSS 真在工作
 
@@ -109,6 +162,9 @@ grep -m1 ipv4_rx_pkts /sys/kernel/debug/qca-nss-drv/stats/ipv4
 nft list flowtables
 # 应该什么都不输出（有 flowtable 说明 flow offloading 还开着，ECM 会被饿死）
 
+nft list ruleset | grep fullcone
+# 应该有 fullcone 规则（验证 Fullcone 真生效）
+
 top
 # 满速流量下 idle 应该保持在 90% 以上
 ```
@@ -118,7 +174,8 @@ top
 见 [docs/adding-devices.md](docs/adding-devices.md)。一句话概括：
 先从硬件上把板子定义清楚（丝印、FEM、caldata），再到底包里做
 profile/DTS，回来复制一份配置、往 workflow 矩阵里加一行、
-上机跑一遍上面的冒烟测试。
+上机跑一遍上面的冒烟测试。CR8808/CR8809 目前看不用移植，
+先按 cr8806 同镜像实测。
 
 ## 合规说明
 
@@ -131,14 +188,18 @@ profile/DTS，回来复制一份配置、往 workflow 矩阵里加一行、
 - 各设备的校准数据（caldata）来自设备自己的 ART 分区，
   不要把别的板子的 caldata 拷进镜像。
 
-## 未确认事项（第一次编译前必须对上）
+## 未确认事项
 
 - 底包提交 pin：workflow 默认的 `base_ref` 已核对为 `c3po-tag-8021q`
   的 HEAD 提交（2026-10-31），rebase 时更新。
-- nss feed 目前只 pin 了分支（底包的 `feeds.conf.default` 就是
-  这样），还没 pin 到具体提交；拿到一次已知良好的编译后，
-  把 `feeds.buildinfo` 里的 nss 行写进 `feeds.conf` 再提交。
-- `.config` 里的符号名来自调研报告，workflow 会在 defconfig
-  后逐项核对，核对不过就失败，不会静默出一个没 NSS 的包。
-- CR8808/CR8809 的闪存布局（是否为 128 MB NAND 双 slot）
-  目前只是按家族推测，未按型号确认，移植时必须实测。
+- nss feed 的具体提交已知（第一次编译的 `feeds.buildinfo`：
+  `4fa071ab`），但还没钉进 `feeds.conf`（TODO）。
+- 之后新增的特性（Argon、SQM、SmartDNS、Fullcone、O3、
+  bridge-mgr 等）尚未经过编译验证，等下一次编译；
+  `.config` 里的符号名 workflow 会在 defconfig 后逐项核对，
+  核对不过就失败，不会静默出一个缺功能的包。
+- factory.ubi 的产出：按 UbiFit 默认规则会产，工作流已把它
+  列为强制 artifact，下次编译验证。
+- CR8806 上机功能（NAT/IPv6/多客户端/WiFi/SQM/Fullcone/
+  SmartDNS）尚未实测。
+- m79 A/B 的区别仍无公开定义。
