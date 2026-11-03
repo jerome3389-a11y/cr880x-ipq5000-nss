@@ -328,7 +328,9 @@ jobs:
 
             Attached files: sysupgrade image, factory image, initramfs image (if built), config.buildinfo, feeds.buildinfo, sha256sums.txt. Exact feed commits are in feeds.buildinfo.
 
-            First install: UART + TFTP, boot the initramfs image, then write factory.ubi to the other slot; later upgrades use sysupgrade.
+            First install: UART + TFTP, boot the initramfs image, then write factory.ubi from the booted system to the other slot; later upgrades use sysupgrade.
+
+            WARNING: factory.ubi is an OpenWrt UBI image, not OEM firmware. Never flash it through the stock U-Boot web recovery — stock U-Boot does not understand UBI images and this bricks the bootloader (confirmed 2026-11-03). Do not sysupgrade to this firmware from a system with a different partition layout (e.g. a merged single-UBI layout); use the first-install path above.
 
             Flash only the listed models. Do not flash across models, board revisions (M79/M81) or A/B versions; a wrong image can brick the device.
 

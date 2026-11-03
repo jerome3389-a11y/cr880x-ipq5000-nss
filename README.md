@@ -240,6 +240,15 @@ SQM、dnsmasq 缓存的实际效果。
   升级用 sysupgrade。
 - 双 slot 写错有变砖风险，操作前确认自己板子的 slot 布局，
   不要照搬别板子的步骤；刷之前先备份原厂固件。
+- ⚠️ factory.ubi 是 OpenWrt 的 UBI 镜像，不是原厂格式固件：
+  只能在已启动的 initramfs 系统里写到固件 slot，**严禁
+  用原厂 U-Boot 的 web 恢复直接刷 factory.ubi**——原厂
+  U-Boot 不认识 UBI 镜像，这样刷会写坏引导链、变砖
+  （2026-11-03 已有因此变砖的案例）。
+- ⚠️ 从 HZYITC 系统（双分区合并成一个 UBI）过来的用户：
+  不能直接 sysupgrade（尤其不能强制刷），两边分区布局
+  对不上，刷完重启还是原系统；必须走上面这条 UART +
+  TFTP 首次安装路径。
 - 首次开机先在 LuCI 里设 root 密码（OpenWrt 默认 root 没密码）。
 
 ## 装好后怎么验证 NSS 真在工作
