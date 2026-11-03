@@ -134,27 +134,36 @@ jobs:
           # pages (UBI attach fails, no boot). HZYITC 5.4 (4-bit) and
           # ImmortalWrt (default = 4-bit) both boot via trigsoft web
           # flash; Build #6 (8-bit) was the only failure.
-          # The cr8806 DTS lives in the base tree, not this repo, so
-          # patch it in place. Fail closed: the 8-bit pattern must be
-          # found exactly once, so a future base-tree change can't
-          # silently skip this fix. (The M81 DTS is fixed repo-side in
-          # dts/ipq5018-cr8808.dts; this step only affects cr8806.)
+          # Build #8 (SMEM_PART.md §6.1): the cr8806 DTS is now a
+          # repo-side override (dts/ipq5018-cr8806.dts) that the
+          # "Install custom devices" step already copied over the base
+          # DTS, so it already carries 4-bit AND fixed-partitions.
+          # This step is therefore IDEMPOTENT: patch 8->4 only if an
+          # 8-bit occurrence is still present (pure base-tree case),
+          # then assert exactly one 4-bit and zero 8-bit. (The M81 DTS
+          # is fixed repo-side in dts/ipq5018-cr8808.dts; this step
+          # only affects cr8806.)
           DTS="target/linux/qualcommax/dts/ipq5018-cr8806.dts"
           test -f "$DTS" || { echo "ERROR: $DTS not found"; exit 1; }
-          COUNT="$(grep -c 'nand-ecc-strength = <8>;' "$DTS" || true)"
-          if [ "$COUNT" -ne 1 ]; then
-            echo "ERROR: expected exactly one 'nand-ecc-strength = <8>;' in $DTS, found $COUNT"
-            exit 1
+          if [ "$(grep -c 'nand-ecc-strength = <8>;' "$DTS" || true)" -ne 0 ]; then
+            sed -i '/^&qpic_nand/,/^};/ s/nand-ecc-strength = <8>;/nand-ecc-strength = <4>;/' "$DTS"
           fi
-          sed -i '/^&qpic_nand/,/^};/ s/nand-ecc-strength = <8>;/nand-ecc-strength = <4>;/' "$DTS"
           echo "--- after patch ---"
           grep -n 'nand-ecc-strength' "$DTS"
           if [ "$(grep -c 'nand-ecc-strength = <4>;' "$DTS" || true)" -ne 1 ]; then
-            echo "ERROR: patch did not produce exactly one 4-bit strength"
+            echo "ERROR: expected exactly one 4-bit strength"
             exit 1
           fi
           if [ "$(grep -c 'nand-ecc-strength = <8>;' "$DTS" || true)" -ne 0 ]; then
             echo "ERROR: 8-bit strength still present after patch"
+            exit 1
+          fi
+          # Guard: the fixed-partitions override must have landed
+          # (SMEM_PART.md §6.1). Fail closed if the DTS still uses
+          # the SMEM-table parser node or lacks fixed-partitions.
+          grep -q 'compatible = "fixed-partitions";' "$DTS" || { echo "ERROR: fixed-partitions not found in $DTS (override did not land?)"; exit 1; }
+          if grep -q 'qcom,smem-part' "$DTS"; then
+            echo "ERROR: qcom,smem-part still present in $DTS"
             exit 1
           fi
 
