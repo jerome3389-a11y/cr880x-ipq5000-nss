@@ -303,8 +303,8 @@ jobs:
           # (same profile, same DTS) count as supported for install,
           # on-device testing is tracked separately in the README.
           case "${{ matrix.device }}" in
-            xiaomi_cr8806) SUPPORTED_MODELS="Xiaomi CR8806 (M79), Xiaomi CR8808 (M79), Xiaomi CR8809 (M79)" ;;
-            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (M81)" ;;
+            xiaomi_cr8806) SUPPORTED_MODELS="Xiaomi CR8806 (A版 M79), Xiaomi CR8808 (A版 M79), Xiaomi CR8809 (A版 M79)" ;;
+            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (A版 M81)" ;;
             *) SUPPORTED_MODELS="${{ matrix.device }}" ;;
           esac
           echo "SUPPORTED_MODELS=$SUPPORTED_MODELS" >> "$GITHUB_ENV"
