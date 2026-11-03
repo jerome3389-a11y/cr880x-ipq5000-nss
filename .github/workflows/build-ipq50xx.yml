@@ -298,6 +298,16 @@ jobs:
           DATE="$(date +'%Y.%m.%d')"
           echo "RELEASE_TAG=${{ matrix.device }}-${DATE}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
           echo "RELEASE_NAME=${{ matrix.device }} NSS FW ${{ inputs.firmware }} - ${DATE} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
+          # Supported models per firmware profile, so every release
+          # states which hardware it may be flashed on. ALT models
+          # (same profile, same DTS) count as supported for install,
+          # on-device testing is tracked separately in the README.
+          case "${{ matrix.device }}" in
+            xiaomi_cr8806) SUPPORTED_MODELS="Xiaomi CR8806 (M79), Xiaomi CR8808 (M79), Xiaomi CR8809 (M79)" ;;
+            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (M81)" ;;
+            *) SUPPORTED_MODELS="${{ matrix.device }}" ;;
+          esac
+          echo "SUPPORTED_MODELS=$SUPPORTED_MODELS" >> "$GITHUB_ENV"
 
       - name: Publish release
         if: success()
@@ -309,15 +319,18 @@ jobs:
           allowUpdates: false
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            CR8806 NSS firmware build (kernel 6.18, NSS firmware ${{ inputs.firmware }}).
+            IPQ50xx NSS firmware build (kernel 6.18, NSS firmware ${{ inputs.firmware }}).
 
-            - Device: ${{ matrix.device }}
+            - Device profile: ${{ matrix.device }}
+            - Supported models: ${{ env.SUPPORTED_MODELS }}
             - Base tree: kuncy7/openwrt-nss-edma, branch c3po-tag-8021q, commit ${{ inputs.base_ref }}
             - Build: #${{ github.run_number }}, attempt ${{ github.run_attempt }}
 
             Attached files: sysupgrade image, factory image, initramfs image (if built), config.buildinfo, feeds.buildinfo, sha256sums.txt. Exact feed commits are in feeds.buildinfo.
 
-            First install on CR8806: UART + TFTP, boot the initramfs image, then write factory.ubi to the other slot; later upgrades use sysupgrade.
+            First install: UART + TFTP, boot the initramfs image, then write factory.ubi to the other slot; later upgrades use sysupgrade.
+
+            Flash only the listed models. Do not flash across models, board revisions (M79/M81) or A/B versions; a wrong image can brick the device.
 
       # Cleanup runs only when the build succeeded, and never fails the
       # job: the release above is already published by then, and the user
