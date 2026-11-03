@@ -181,12 +181,18 @@
 		reg = <0>;
 		nand-ecc-engine = <&qpic_nand>;
 		/*
-		 * The stock U-Boot uses 8-bit ECC. Without this the driver
-		 * picks 4-bit from the chip requirements and every codeword
-		 * read is misaligned (corrupted caldata, UBI read errors).
+		 * NAND ECC strength is 4-bit (step 512), NOT 8-bit.
+		 * kuncy7's stock-U-Boot note ("stock U-Boot uses 8-bit ECC")
+		 * does NOT apply to trigsoft-chain devices: trigsoft's
+		 * modified U-Boot reads/writes NAND with 4-bit-compatible
+		 * ECC, so an 8-bit kernel cannot decode trigsoft-written
+		 * pages (UBI attach fails, no boot). Build #6 (8-bit)
+		 * failed exactly this way via trigsoft web flash, while
+		 * HZYITC 5.4 (4-bit) and ImmortalWrt (default = 4-bit)
+		 * both boot. Diagnosis 2026-11-03 (build6-diagnosis).
 		 */
 		nand-ecc-step-size = <512>;
-		nand-ecc-strength = <8>;
+		nand-ecc-strength = <4>;
 		nand-bus-width = <8>;
 
 		partitions {

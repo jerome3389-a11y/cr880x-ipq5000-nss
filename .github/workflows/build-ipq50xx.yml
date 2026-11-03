@@ -123,6 +123,41 @@ jobs:
             echo "91c689226aa5a3af853063452393055c5e764866fec707ccd504738314e75134  ../files-xiaomi_cr8808/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin" | sha256sum -c -
           fi
 
+      - name: Patch cr8806 NAND ECC to 4-bit (trigsoft chain)
+        run: |
+          cd openwrt
+          # Build #6 diagnosis (2026-11-03): the kuncy7 base DTS forces
+          # 8-bit NAND ECC, which is correct for a stock-U-Boot chain
+          # but wrong for the trigsoft chain on this device: trigsoft's
+          # modified U-Boot reads/writes NAND with 4-bit-compatible
+          # ECC, so an 8-bit kernel cannot decode trigsoft-written
+          # pages (UBI attach fails, no boot). HZYITC 5.4 (4-bit) and
+          # ImmortalWrt (default = 4-bit) both boot via trigsoft web
+          # flash; Build #6 (8-bit) was the only failure.
+          # The cr8806 DTS lives in the base tree, not this repo, so
+          # patch it in place. Fail closed: the 8-bit pattern must be
+          # found exactly once, so a future base-tree change can't
+          # silently skip this fix. (The M81 DTS is fixed repo-side in
+          # dts/ipq5018-cr8808.dts; this step only affects cr8806.)
+          DTS="target/linux/qualcommax/dts/ipq5018-cr8806.dts"
+          test -f "$DTS" || { echo "ERROR: $DTS not found"; exit 1; }
+          COUNT="$(grep -c 'nand-ecc-strength = <8>;' "$DTS" || true)"
+          if [ "$COUNT" -ne 1 ]; then
+            echo "ERROR: expected exactly one 'nand-ecc-strength = <8>;' in $DTS, found $COUNT"
+            exit 1
+          fi
+          sed -i '/^&qpic_nand/,/^};/ s/nand-ecc-strength = <8>;/nand-ecc-strength = <4>;/' "$DTS"
+          echo "--- after patch ---"
+          grep -n 'nand-ecc-strength' "$DTS"
+          if [ "$(grep -c 'nand-ecc-strength = <4>;' "$DTS" || true)" -ne 1 ]; then
+            echo "ERROR: patch did not produce exactly one 4-bit strength"
+            exit 1
+          fi
+          if [ "$(grep -c 'nand-ecc-strength = <8>;' "$DTS" || true)" -ne 0 ]; then
+            echo "ERROR: 8-bit strength still present after patch"
+            exit 1
+          fi
+
       - name: Pin feeds to proven commits
         run: |
           cd openwrt
