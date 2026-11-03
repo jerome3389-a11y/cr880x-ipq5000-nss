@@ -1,10 +1,10 @@
-# ipq50xx-openwrt-nss
+# CR880X IPQ5000 NSS
 
-IPQ50xx 设备的 OpenWrt 固件自动编译项目：用 GitHub Actions 自动编译带
+小米 CR880X（CR8806/CR8808/CR8809）IPQ5000 平台的 OpenWrt 固件自动编译项目：用 GitHub Actions 自动编译带
 Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速**。
 
 > 本仓库只放编译脚本和配置，不放底包源码。编译时 workflow 会从底包仓库
-> 克隆指定提交的代码再编译。2026-11-03 第 5 次编译已成功（全部特性），
+> 克隆指定提交的代码再编译。2026-11-03 第 6 次编译已成功（全部特性），
 > Release 已发布；上机实测（NAT/IPv6/WiFi/SQM/dnsmasq 缓存）仍待做。
 > Fullcone、cpufreq、arpbind 已确认不在钉住的 feed 里，已从配置里去掉。
 
