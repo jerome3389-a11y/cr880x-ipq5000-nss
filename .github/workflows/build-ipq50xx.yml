@@ -3,7 +3,8 @@
 # Builds OpenWrt firmware with Qualcomm NSS acceleration for IPQ50xx devices
 # from the kuncy7/openwrt-nss-edma tree (branch c3po-tag-8021q, kernel 6.18).
 #
-# This repository holds only the build scripts and configs. The base tree is
+# This repository holds the build scripts, configs, and device definitions
+# the base tree does not have yet (dts/). The base tree is
 # cloned at build time at a pinned commit (see base_ref). The nss feed comes
 # from the base tree's feeds.conf.default (kuncy7/nss-packages, branch
 # ipq50xx-rebase); pinning the feed by commit is a TODO, see below.
@@ -24,6 +25,7 @@ on:
         type: choice
         options:
           - xiaomi_cr8806
+          - xiaomi_cr8808
       firmware:
         description: "NSS firmware line. 12.5 is the default; 12.2 is the fallback. The driver is built for the firmware shipped, never mix them."
         required: true
@@ -56,9 +58,8 @@ jobs:
     strategy:
       # To add a device later: add its profile name here AND a mapping line in
       # the "Apply device config" step AND a config file in configs/.
-      # Example once CR8808/CR8809 profiles exist in the base tree:
-      #   matrix:
-      #     device: [xiaomi_cr8806, xiaomi_cr8808, xiaomi_cr8809]
+      # If the base tree has no profile for it yet, also add its .dts and
+      # .mk.inc to dts/ (the "Install custom devices" step injects them).
       matrix:
         device: ["${{ inputs.device }}"]
     steps:
@@ -83,6 +84,39 @@ jobs:
           git log --oneline -1
           # Sanity: this must be the NSS tree, not plain OpenWrt.
           test -f README.ipq50xx.md
+
+      - name: Install custom devices
+        run: |
+          cd openwrt
+          # Devices the base tree does not have yet (e.g. M81) live in
+          # this repo's dts/: a .dts file plus a .mk.inc device block.
+          # Inject them into the base tree before defconfig. The
+          # Device/Default rule derives the DTS name as
+          # SOC-lastword(device name), so xiaomi_cr8808 ->
+          # ipq5018-cr8808.dts; the .dts filename must match that rule.
+          if ls ../dts/*.dts >/dev/null 2>&1; then
+            cp ../dts/*.dts target/linux/qualcommax/dts/
+            for inc in ../dts/*.mk.inc; do
+              cat "$inc" >> target/linux/qualcommax/image/ipq50xx.mk
+            done
+          fi
+          # M81 board data gate: the M81 image has no ipq-wifi package,
+          # its board-2.bin files must come from the per-device overlay.
+          # Fail here, before the long build, instead of shipping an
+          # image whose Wi-Fi loads the wrong board data (or none).
+          if [ "${{ inputs.device }}" = "xiaomi_cr8808" ]; then
+            for f in \
+              "files-xiaomi_cr8808/lib/firmware/ath11k/IPQ5018/hw1.0/board-2.bin" \
+              "files-xiaomi_cr8808/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin"; do
+              if [ ! -f "../$f" ]; then
+                echo "MISSING M81 board data: $f" >&2
+                echo "Put the M81 board-2.bin files (CTR66266 2.4 GHz FEM, from M81 OEM firmware)" >&2
+                echo "at that path in this repo, then re-run. The calibration-variant in" >&2
+                echo "dts/ipq5018-cr8808.dts must match the variant inside those files." >&2
+                exit 1
+              fi
+            done
+          fi
 
       - name: Pin feeds to proven commits
         run: |
@@ -139,6 +173,7 @@ jobs:
           # Add one line per new device here.
           case "${{ matrix.device }}" in
             xiaomi_cr8806) CONFIG_FILE="cr8806-256m.config" ;;
+            xiaomi_cr8808) CONFIG_FILE="cr8808-m81-256m.config" ;;
             *) echo "No config mapping for device: ${{ matrix.device }}" >&2; exit 1 ;;
           esac
           cp "../configs/${CONFIG_FILE}" .config
@@ -208,6 +243,12 @@ jobs:
             mkdir -p files
             cp -r ../files/. files/
             chmod +x files/etc/uci-defaults/* 2>/dev/null || true
+          fi
+          # Per-device overlay (e.g. files-xiaomi_cr8808/): applied after
+          # files/, so it can override shared files. M81 board data
+          # lives here, not in files/, so the M79 image never picks it up.
+          if [ -d "../files-${{ matrix.device }}" ]; then
+            cp -r "../files-${{ matrix.device }}/." files/
           fi
 
       - name: Download sources
