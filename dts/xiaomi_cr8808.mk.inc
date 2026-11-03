@@ -4,9 +4,9 @@
 # "Install custom devices"). It mirrors the xiaomi_cr8806 block, with:
 # - no ALT entries (CR8808 M79 stays an ALT of cr8806; this is M81 only)
 # - no ipq-wifi package: M81 board data comes from the per-device files
-#   overlay (files-xiaomi_cr8808/), because no ipq-wifi-xiaomi_cr8808
-#   package exists. The workflow fails fast if those board files are
-#   missing, so a build never silently ships with wrong Wi-Fi data.
+#   overlay (files-xiaomi_cr8808/), fetched by the workflow at build time
+#   from hzyitc's redmi_ax3000 board files (pinned commit + sha256).
+#   The workflow fails fast if the fetch or the hash check fails.
 # - same FIT config (config@mp02.1), NAND geometry and radios as M79;
 #   hzyitc covers M79 and M81 with a single DTS, which is the evidence
 #   they match, but LED/button GPIOs and the NAND layout are NOT yet

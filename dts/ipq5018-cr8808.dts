@@ -7,8 +7,11 @@
 // copied verbatim):
 //   model: "Xiaomi CR8806 (M79)" -> "Xiaomi CR8808 (M81)"
 //   compatible: "xiaomi,cr8806" -> "xiaomi,cr8808"
-//   qcom,ath11k-calibration-variant (both radios): "Xiaomi-CR8806"
-//     -> "Xiaomi-CR8808"
+//   wifi (2.4 GHz) node: qcom,ath11k-calibration-variant -> qcom,board_id
+//     = <0x24> (M81, epa); wifi1 (5 GHz) node: -> qcom,board_id = <0x60>
+//     (shared 5 GHz entry). Board-id selection mirrors hzyitc, whose
+//     hotplug script picks 0x24 for epa (external PA, M81) and 0x10 for
+//     ipa (M79) from the OEM wl_pa_type flag.
 //
 // STATUS - READ BEFORE BUILDING:
 // - Switch (QCA8337), SoC (IPQ5018), radios (IPQ5018 + QCN6122), NAND
@@ -17,12 +20,14 @@
 //   is the evidence they match, but they are NOT yet verified on M81
 //   hardware in this tree - LED/button GPIOs and the NAND layout in
 //   particular must be checked on a real M81 board.
-// - Board data is the open gap: the M81 board-2.bin files (CTR66266
-//   2.4 GHz FEM) are NOT in this repo. The calibration-variant above
-//   ("Xiaomi-CR8808") is a proposal: it MUST match the variant string
-//   inside the M81 board files when they arrive, or ath11k will not
-//   pick them up. The workflow fails fast if the board files are
-//   missing, so a build never silently ships with wrong Wi-Fi data.
+// - Board data comes from hzyitc's redmi_ax3000 board files, fetched by
+//   the workflow at build time (pinned commit + sha256 check) into the
+//   per-device overlay: the 2.4 GHz file carries two entries, board-id
+//   0x10 (M79) and 0x24 (M81); this DTS selects 0x24. The 5 GHz file has
+//   the single shared board-id 0x60 entry (RTC66568 on both boards).
+//   On-device verification is still required: 2.4 GHz power/throughput
+//   on real M81 hardware, before trusting the 5.4-era board data on
+//   kernel 6.18 ath11k.
 // - When the base tree gains a real M81 profile, delete this file and
 //   the matching .mk.inc and point the config at the base profile.
 
@@ -420,7 +425,7 @@
 	ieee80211-freq-limit = <2400000 2483000>;
 
 	qcom,rproc = <&q6v5_wcss>;
-	qcom,ath11k-calibration-variant = "Xiaomi-CR8808";
+	qcom,board_id = <0x24>;
 	qcom,ath11k-fw-memory-mode = <2>;
 };
 
@@ -428,7 +433,7 @@
 	status = "okay";
 
 	qcom,rproc = <&q6v5_wcss>;
-	qcom,ath11k-calibration-variant = "Xiaomi-CR8808";
+	qcom,board_id = <0x60>;
 	qcom,ath11k-fw-memory-mode = <2>;
 	ieee80211-freq-limit = <5150000 5850000>;
 

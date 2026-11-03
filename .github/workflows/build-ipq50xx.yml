@@ -100,22 +100,27 @@ jobs:
               cat "$inc" >> target/linux/qualcommax/image/ipq50xx.mk
             done
           fi
-          # M81 board data gate: the M81 image has no ipq-wifi package,
-          # its board-2.bin files must come from the per-device overlay.
-          # Fail here, before the long build, instead of shipping an
-          # image whose Wi-Fi loads the wrong board data (or none).
+          # M81 board data: the M81 image has no ipq-wifi package, so
+          # fetch its board-2.bin files at build time from hzyitc's
+          # redmi_ax3000 board files (pinned commit + sha256 check, so
+          # the build is reproducible). hzyitc's 2.4 GHz file carries
+          # two entries: board-id 0x10 (M79, ipa) and 0x24 (M81, epa);
+          # the M81 DTS sets qcom,board_id = 0x24, so ath11k picks the
+          # M81 entry. The 5G file has the shared board-id 0x60 entry.
+          # Fail here, before the long build, if the fetch or the hash
+          # check fails, instead of shipping an image whose Wi-Fi loads
+          # the wrong board data (or none).
           if [ "${{ inputs.device }}" = "xiaomi_cr8808" ]; then
-            for f in \
-              "files-xiaomi_cr8808/lib/firmware/ath11k/IPQ5018/hw1.0/board-2.bin" \
-              "files-xiaomi_cr8808/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin"; do
-              if [ ! -f "../$f" ]; then
-                echo "MISSING M81 board data: $f" >&2
-                echo "Put the M81 board-2.bin files (CTR66266 2.4 GHz FEM, from M81 OEM firmware)" >&2
-                echo "at that path in this repo, then re-run. The calibration-variant in" >&2
-                echo "dts/ipq5018-cr8808.dts must match the variant inside those files." >&2
-                exit 1
-              fi
-            done
+            HZY_COMMIT="ab1f9ffa5b5b62f252a5e87eb23f51f4e2544511"
+            HZY_BASE="https://raw.githubusercontent.com/hzyitc/openwrt-redmi-ax3000/$HZY_COMMIT/package/firmware/ipq-wifi"
+            mkdir -p ../files-xiaomi_cr8808/lib/firmware/ath11k/IPQ5018/hw1.0 \
+                     ../files-xiaomi_cr8808/lib/firmware/ath11k/QCN6122/hw1.0
+            curl -sL -o ../files-xiaomi_cr8808/lib/firmware/ath11k/IPQ5018/hw1.0/board-2.bin \
+              "$HZY_BASE/board-redmi_ax3000.ipq5018"
+            curl -sL -o ../files-xiaomi_cr8808/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin \
+              "$HZY_BASE/board-redmi_ax3000.qcn6122"
+            echo "a1d03029566e469ceee4d570324dfa015f3d01e351bc87c81329ffdd7a7c4186  ../files-xiaomi_cr8808/lib/firmware/ath11k/IPQ5018/hw1.0/board-2.bin" | sha256sum -c -
+            echo "91c689226aa5a3af853063452393055c5e764866fec707ccd504738314e75134  ../files-xiaomi_cr8808/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin" | sha256sum -c -
           fi
 
       - name: Pin feeds to proven commits
