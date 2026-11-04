@@ -140,6 +140,31 @@ jobs:
           # Sanity: this must be the NSS tree, not plain OpenWrt.
           test -f README.ipq50xx.md
 
+      - name: Disable mainland mirrors
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd openwrt
+          # Upstream (laipeng668) practice, adopted per user decision:
+          # GitHub runners are outside mainland China, so mainland
+          # mirrors are slow/unreachable. Remove them from the mirror
+          # list so downloads go to upstream origins; origins are
+          # untouched, so availability cannot drop. Verified against
+          # the pinned tree: projectsmirrors.json carries mainland
+          # entries (filter has effect); download.pl has no gitmirror
+          # lines (that sed is a no-op here, kept for fidelity).
+          mirror_file="scripts/projectsmirrors.json"
+          jq '
+          with_entries(
+          .value |= map(select(
+          test("^https?://(mirrors\\.tencent\\.com|mirrors\\.aliyun\\.com|mirrors\\.tuna\\.tsinghua\\.edu\\.cn|mirrors\\.ustc\\.edu\\.cn|mirror\\.iscas\\.ac\\.cn|mirror\\.nju\\.edu\\.cn)(/|$)")
+          | not
+          ))
+          )
+          ' "$mirror_file" > "$mirror_file.tmp"
+          mv "$mirror_file.tmp" "$mirror_file"
+          sed -i '/raw\.gitmirror\.com/d' scripts/download.pl
+
       - name: Install custom devices
         run: |
           set -Eeuo pipefail
