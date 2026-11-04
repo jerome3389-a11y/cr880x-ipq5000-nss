@@ -562,6 +562,8 @@ jobs:
             cp -r ../files/. files/
             chmod +x files/etc/uci-defaults/* 2>/dev/null || true
             chmod +x files/etc/hotplug.d/firmware/* 2>/dev/null || true
+            # /etc/shadow must not be world-readable in the image.
+            chmod 0600 files/etc/shadow 2>/dev/null || true
           fi
           # Per-device overlay (e.g. files-xiaomi_cr8808/): applied after
           # files/, so it can override shared files. M81 board data
