@@ -594,29 +594,27 @@ jobs:
             '^CONFIG_PACKAGE_wpad-basic-mbedtls=y$' \
             '^CONFIG_PACKAGE_iw=y$' \
             ; do
-            grep -q "$pat" .config || { echo "BUILT CONFIG MISSING: $pat"; fail=1; }
+            grep -q "$pat" .config || { echo "::error::BUILT CONFIG MISSING: $pat"; fail=1; }
           done
-          find bin/targets/qualcommax/ipq50xx -name 'kmod-ath11k_*.ipk' | grep -q . && echo "kmod-ath11k ipk found" || {
-            # No ipk is not automatically a failure: if ath11k is built into
-            # the kernel (=y) there is no ipk by design, and WiFi still works.
-            # Fail only when ath11k is truly absent, and dump the evidence
-            # either way so the next failure names the exact state (#11
-            # failed here with a bare MISSING and no listing to read).
-            echo "--- ATH11K kernel symbols ---"
-            grep -E '^CONFIG_ATH11K(_AHB)?=' .config || echo "(no CONFIG_ATH11K* line)"
-            echo "--- kmod-ath11k anywhere under bin/ ---"
+          # Package-format check: this tree builds APK packages
+          # (kmod-ath11k-6.18.55.7.2-r10.apk), NOT ipk. #11 and #12
+          # failed here because the check looked for '*.ipk' while the
+          # build had already produced the .apk (proven by #12's own
+          # evidence dump). Accept any kmod-ath11k file under bin/,
+          # whatever the extension. The old CONFIG_ATH11K built-in
+          # branch is removed: CONFIG_ATH11K is a kernel symbol that
+          # never appears in .config, so that branch could never match.
+          if find bin -name 'kmod-ath11k*' | grep -q .; then
+            echo "kmod-ath11k package found:"
             find bin -name 'kmod-ath11k*' | head -20
-            if grep -q '^CONFIG_ATH11K=y$' .config; then
-              echo "ath11k built into kernel, no ipk expected"
-            else
-              echo "--- bin/targets/qualcommax/ipq50xx/ ---"
-              ls bin/targets/qualcommax/ipq50xx/ | head -40
-              echo "--- packages dir ---"
-              ls bin/targets/qualcommax/ipq50xx/packages/ 2>/dev/null | grep -i ath11k || echo "(no ath11k ipk in packages dir)"
-              echo "::error::MISSING: no kmod-ath11k ipk built and ath11k not built-in"
-              fail=1
-            fi
-          }
+          else
+            echo "--- bin/targets/qualcommax/ipq50xx/ ---"
+            ls bin/targets/qualcommax/ipq50xx/ | head -40
+            echo "--- packages dir ---"
+            ls bin/targets/qualcommax/ipq50xx/packages/ 2>/dev/null | grep -i ath11k || echo "(no ath11k package in packages dir)"
+            echo "::error::MISSING: no kmod-ath11k package built"
+            fail=1
+          fi
           [ "$fail" = 0 ] || exit 1
           echo "=== VERIFY OK ==="
 
