@@ -1,324 +1,89 @@
 # CR880X IPQ5000 NSS
 
-小米 CR880X（CR8806/CR8808/CR8809）IPQ5000 平台的 OpenWrt 固件自动编译项目：用 GitHub Actions 自动编译带
-Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速**。
+小米 CR880X（CR8806 / CR8808 / CR8809）IPQ5000 平台的 OpenWrt 固件自动编译项目：GitHub Actions 自动编译带 Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速**。本仓库只放编译脚本、配置和设备定义，不放底包源码；编译时 workflow 按钉住的提交克隆底包再编译。
 
-> 本仓库只放编译脚本和配置，不放底包源码。编译时 workflow 会从底包仓库
-> 克隆指定提交的代码再编译。2026-11-03 第 6 次编译已成功（全部特性），
-> Release 已发布；上机实测（NAT/IPv6/WiFi/SQM/dnsmasq 缓存）仍待做。
-> Fullcone、cpufreq、arpbind 已确认不在钉住的 feed 里，已从配置里去掉。
+## 基础版本
 
-## 固件特点
+- OpenWrt SNAPSHOT，底包 [kuncy7/openwrt-nss-edma](https://github.com/kuncy7/openwrt-nss-edma)，分支 `c3po-tag-8021q`，钉住提交 `13e8bc914709c4794b3ec7b0421d2038386e697e`
+- 内核 **6.18**（6.18.55）
+- NSS 固件 **12.5**（12.5-210-MP；编译时可选 12.2，驱动必须与固件版本对应）
+- 目标 `qualcommax/ipq50xx`，DSA 拓扑
+- Feeds 钉住：packages `24f7c066`、luci `ae19cdfd`、routing `ea8633da`、telephony `9bcb6d71`、video `4582d70f`、nss `4fa071ab`
+- LuCI（Argon 为默认主题，Bootstrap 也在镜像里）
 
-- **NSS 硬件加速（全平面）**：ECM、NSS 驱动、PPPoE、VLAN 管理、
-  DSA NSS、dwmac NSS、QCA8337 NSS、Wi-Fi offload、
-  ath11k NSS，QCN6122 固件，256 MB 板子用 LOW 内存档，
-  NSS 固件默认 **12.5-210-MP**（备选 12.2-156-MP.R）。
-  注意：bridge-mgr 不在 ipq50xx 上（qca-nss-clients 把它限定在
-  ipq807x/ipq60xx 的 PPE 栈，EDMA 树没有它），不要把它写进配置。
-- **编译优化**：`-O3` + Cortex-A53 crypto 指令集优化
- （`march=armv8-a+crypto+crc`，用户已验证可通过云编译）；
-  LTO 跟 IPQ6000 项目一样开了（`CONFIG_USE_LTO=y`）；该项目配置里也警告
-  LTO 吃编译机内存，报错先关它。
-- **TCP BBR**：BBR 模块 + 首次开机 sysctl 设为默认拥塞算法
-  （内核配置里的默认值写法会被 defconfig 丢掉，见配置注释）。
-- **ZRAM**：zram-swap + LZ4 压缩（LZO 做备用），256 MB 板子
-  拿少量 CPU 换可用内存，缓解 OOM。
-- **NSS SQM 硬件队列**：sqm-scripts-nss（nssfq_codel，走
-  conduit eth0，不走 DSA 口 wan）+ luci-app-sqm + ifb；
-  默认关闭，在 LuCI 里启用并按实际带宽填写。
-- **dnsmasq-full 缓存 + DNS 劫持**：dnsmasq-full（替代底包默认的 dnsmasq，
-  adblock 需要它带的 nftset 支持；配置通用，缓存设置不变），
-  首次开机把缓存从默认 150 条调到 1000 条；首次开机
-  自动加一条重定向规则，所有 LAN 的 53 端口流量都转到
-  路由器本机，客户端写死的 8.8.8.8 也绕不过去。
-- **Adblock**：adblock（不装 LuCI 界面，SSH 管），预设规则源：anti_ad（CN）、
-  adguard、yoyo、disconnect；规则列表首次开机联网后自动下载（会过期，
-  所以不 baked 进镜像）；XL/XXL/VAR 大源故意没开，规则多少直接影响
-  dnsmasq 内存，256MB 板子别贪大。
-- **Argon 主题**：luci-theme-argon + luci-app-argon-config，
-  编译时从上游拉最新 master（底包 feed 里没有）；首次开机
-  自动设为 LuCI 默认主题（Bootstrap 也在镜像里，可随时换回）。
-- **小工具**：htop、zoneinfo-asia、upnp、tcpdump-mini。
-- **LuCI 保留**；initramfs 镜像保留，用于 UART + TFTP
-  首次安装。
-- **编译缓存**：工作流缓存 `openwrt/.ccache`，每次运行
-  存新缓存、前缀匹配恢复上一次；超 10 GB 由 GitHub 按
-  最久未用自动淘汰，另有删旧缓存步骤。
-- **自动发布**：每次成功编译发一个独立 Release，tag 是
-  `设备-日期-运行号-尝试号`；附带 sysupgrade 镜像、
-  factory 镜像、initramfs 镜像（如果有）、
-  `config.buildinfo`、`feeds.buildinfo`、`sha256sums.txt`。
-- **自动清理**：删旧缓存、删旧工作流（保留 2 天），
-  两步都设为失败不影响任务，清理失败不会导致发布失败；
-  Release 文件和运行记录分开存，清理不动 Release。
-- **首次开机脚本**：仓库 `files/` 目录会打进镜像，
-  `files/etc/uci-defaults/99-custom` 在首次开机时设置
-  BBR 默认、DNS 劫持规则并调大 dnsmasq 缓存，跑完自动删除。
+## NSS
 
-默认说明：内核 flow offloading（flowtable）必须关（底包
-首次启动会清掉它，否则 ECM 会被饿死）；交换机桥上的
-IGMP snooping 默认关；SQM 默认关。
+- 全平面 NSS：qca-nss-drv + qca-nss-ecm、NSS 固件加载、dwmac NSS、ath11k NSS（wifili）、DSA NSS、QCA8337、PPPoE、VLAN、IPv6、虚拟接口
+- NSS 内存档：LOW（默认）
+- 已在 CR8808（A版 M79）上机验证：NSS 核心启动、有线平面转发零丢包、ECM 已加速 TCP 流、WiFi 测速时 CPU 几乎不变（双频 WiFi 走 NSS 路径）
+- 内核 flow offloading（flowtable）必须保持关闭：NSS ECM 是 offload 路径，两者不能同时开
+- SQM：sqm-scripts-nss（nssfq_codel）+ luci-app-sqm + ifb，默认关闭
+- 交换机桥 IGMP snooping 默认关闭
+- bridge-mgr 不在 ipq50xx 上（仅 ipq807x/ipq60xx 的 PPE 栈有），未包含
 
-### NSS 加速功能表
+## 固件特性
 
-NSS 固件 12.5-210-MP，LOW 内存档。“包含”指编进了镜像，实机测试前
-一律标未测试，实测后逐项改；不包含的直接写不支持。
+- 无线：IPQ5018（2.4G）+ QCN6122（5G），ath11k，双频 WiFi 6（802.11ax）；双频广播已在 CR8808（A版 M79）上机验证
+- 出厂默认：双频 radio 全开、SSID 分开（2.4G `OpenWrt` / 5G `OpenWrt_5G`）、802.11k + 802.11v 默认开、802.11r + 802.11s 默认关（LuCI 里可手动开）；完整版 wpad-mbedtls（与 basic 同为 mbedtls 后端，另含 WNM 与 MESH）；WPA3-SAE 可用
+- 出厂为开放网络：刷机后请立即在 LuCI 里设 WiFi 密码；root 密码同样需在刷机后设置（LuCI 密码页用户名默认 root，只需填新密码 + 确认 + 保存；或 SSH `passwd`）
+- DNS：dnsmasq-full + adblock（默认开启，规则源 anti_ad / adguard / yoyo / disconnect，列表首次开机联网后下载）；LAN 53 端口 DNS 劫持到路由器本机；dnsmasq 缓存 1000；无 SmartDNS
+- 网络：DSA（lan / wan）、BBR（首次开机设为默认拥塞算法）、zram（lz4，LZO 备用）、内核 flow offloading 关、IGMP snooping 关、SQM 关
+- 工具：htop、zoneinfo-asia、luci-app-upnp、tcpdump-mini、iw（无线调试）、ca-bundle
+- 不包含：SmartDNS、ttyd、SFTP/SCP、bridge-mgr、Fullcone、cpufreq、arpbind（feed 里没有或已确认不适用；要加功能请重编译，见下）
+- 设备适配：merged 分区 fixed-partitions（单 rootfs 116.5 MiB）、trigsoft 链 4-bit NAND ECC、ART caldata（`0:ART`，脚本按大小写精确匹配）
+- 编译优化：`-O3` + Cortex-A53 crypto 指令集、LTO 开启
+- 内存：256 MiB 物理内存，Linux 可见约 170 MiB；大规则源（adblock XL/XXL/VAR）默认关闭，别贪大
 
-| 功能 | 状态 | 说明 |
+## 支持的型号
+
+| 固件（profile） | 支持的设备 | 状态 |
 |---|---|---|
-| ECM 核心加速 | 未测试 | NSS 连接管理器，NAT/路由流量的核心 offload 引擎 |
-| PPPoE 加速 | 未测试 | PPPoE 拨号流量的 offload |
-| VLAN 加速 | 未测试 | VLAN 流量的 offload |
-| DSA 交换加速 | 未测试 | DSA 拓扑下交换端口的 offload |
-| 以太网 MAC 加速 | 未测试 | 以太网口的 offload（dwmac） |
-| QCA8337 交换芯片加速 | 未测试 | 本板交换芯片的 offload |
-| RTL8367S 交换芯片加速 | 未测试 | 编进了镜像，但本板交换芯片是 QCA8337，板上是否起作用待实测 |
-| WiFi 加速 | 未测试 | 双频 WiFi 流量的 offload（wifili，ath11k NSS，QCN6122） |
-| IPv6 加速 | 未测试 | NSS IPv6 流量的 offload |
-| 虚拟接口加速 | 未测试 | NSS 虚拟接口支持 |
-| NSS 硬件队列 | 未测试 | SQM 走 NSS 硬件队列（nssfq_codel，conduit eth0） |
-| 桥接加速 | 不支持 | bridge-mgr 仅 ipq807x/ipq60xx 的 PPE 栈有，ipq50xx EDMA 树没有此模块 |
+| `xiaomi_cr8806` | CR8806 / CR8808 / CR8809（A版 M79，共用同一 profile） | 已在 CR8808（A版 M79）上机验证 |
+| `xiaomi_cr8808` | CR8808（A版 M81） | 可编译，未上机验证 |
+| — | CR881x（B版，IPQ5018 + YT9215S）及其他所有型号 | 不支持，刷错变砖 |
 
-注：内核 flow offloading 必须保持关闭（否则 ECM 看不到流量），它不属于
-NSS 加速；Fullcone NAT 也不属于 NSS，且钉住的 feed 里没有对应包，未包含。
+认板看主板版号 + 板型，不要只看型号：CR8808 有 M79 和 M81 两种主板；A版与 B版交换芯片不同，固件不通用。
 
-### 无线功能表
+## 刷机与首次开机
 
-本板无线：IPQ5018 + QCN6122，ath11k 驱动，双频 WiFi 6。支持指硬件/驱动
-能力，不代表默认开启；待确认项需实测或核对驱动后改。
+- 当前设备（trigsoft 合并分区，单 rootfs）：按住 reset 通电进 trigsoft web UI（192.168.10.1），刷 `factory.ubi`。`factory.ubi` 是 OpenWrt UBI 镜像，不是原厂格式，不要当原厂固件刷到别的分区。
+- sysupgrade 不可用：本设备无平台升级脚本，release 里附带的 sysupgrade 镜像不要用于本设备；升级请用 trigsoft web UI 重刷 `factory.ubi`（会清空配置）。
+- 首次安装（原厂分区布局）：UART（115200 8N1）+ TFTP，启动 initramfs，把 `factory.ubi` 写到固件 UBI 分区；刷前备份原厂固件。
+- 刷坏恢复：断电，按住 reset 再通电，多试几次进 trigsoft web UI，刷回已知好的固件。
+- 首次开机：立即设 root 密码 + WiFi 密码（出厂 radio 全开且开放网络）。
 
-| 功能 | 状态 | 说明 |
-|---|---|---|
-| WiFi 6（802.11ax） | 支持 | 双频 11ax |
-| 2.4GHz 40MHz 频宽 | 支持 | 拥挤环境可能因共存机制回落 20MHz |
-| 5GHz 160MHz 频宽 | 支持 | 受当地法规与 DFS 影响，雷达信道可能切频 |
-| 802.11k（邻居报告） | 支持 | 默认关闭，需手动开启 |
-| 802.11v（BSS 切换管理） | 支持 | 默认关闭，需手动开启 |
-| 802.11r（快速漫游） | 支持 | 默认关闭，需手动配置，多 AP 漫游用 |
-| Mesh（802.11s） | 待确认 | 驱动支持 mesh 点模式；加密 mesh 依赖 wpad 版本，底包默认值未核对 |
-| LNA（低噪声放大器） | 待确认 | 属硬件配置，需核对板子 FEM 型号，固件不决定 |
-| PA（功率放大器） | 待确认 | 同上 |
-| BSS 染色（信道染色） | 支持 | 802.11ax 自带，随 11ax 开启 |
-| MU-MIMO | 支持 | 下行；上行与多用户增益依赖终端支持 |
-| 波束成型 | 支持 | 显式波束成型需终端反馈配合 |
-| OFDMA | 支持 | 802.11ax 上下行 |
-| WPA3 | 支持 | WPA3-Personal（SAE），配置里可选 |
-| 1024-QAM | 支持 | 802.11ax 调制方式 |
+## 编译
 
-## 底包（已确认）
+- `.github/workflows/build-ipq50xx.yml`（瘦调用方）+ `build-ipq50xx-shared.yml`（共用构建），手动触发（`workflow_dispatch`）
+- 输入：`device`（`xiaomi_cr8806` / `xiaomi_cr8808`）、`firmware`（`12.5` 默认 / `12.2`）、`base_ref`（底包提交，默认钉住值）
+- 每次成功编译发一个独立 Release（tag `设备-日期-运行号-尝试号`）：先发 draft，验远端摘要通过后再发布，坏版永不公开；附带 factory / sysupgrade / initramfs 镜像、`config.buildinfo`、`feeds.buildinfo`、完整 `.config`、`sha256sums.txt`、第三方来源清单
+- 缓存：ccache 按工具链 + 编译器键入，staging / dl 按配置哈希键入；旧缓存与旧工作流自动清理（工作流保留 2 天，Release 不受影响）
+- 要加功能请重编译：本项目不提供自建 kmod 仓库；kmod 包带内核 vermagic，只能装在同一编译的内核上
 
-| 项目 | 取值 |
-|---|---|
-| 底包 | [kuncy7/openwrt-nss-edma](https://github.com/kuncy7/openwrt-nss-edma)，分支 `c3po-tag-8021q`（该仓库的默认分支） |
-| 内核 | **6.18**（CR8806 参考发布为 6.18.55） |
-| NSS feed | [kuncy7/nss-packages](https://github.com/kuncy7/nss-packages)，分支 `ipq50xx-rebase` |
-| NSS 固件 | **12.5-210-MP**（默认）；备选 **12.2-156-MP.R** |
-| 目标 | `qualcommax/ipq50xx` |
-| 拓扑 | DSA（`nss.general.topology='dsa'`，底包默认） |
+## 给 fork 者的建议与注意事项
 
-为什么选这套：它是目前唯一同时做到最新内核（6.18）又真正加速
-IPQ5018 的树，且已有 CR8806 的 profile。官方 OpenWrt 25.12（6.12）
-和 ImmortalWrt 25.12（6.12）都没有 NSS，只能当备选。
-不要用 qosmio/openwrt-ipq 做 IPQ50xx NSS（其作者自述 IPQ50xx
-补丁是“盲猜、至今未成功”），也不要用 hzyitc/LiBwrt 的
-4.4/5.4/5.15 老树（5.15 没有 NSS NAT）。
+建议：
 
-关键约束（来自底包文档，照做不要自创）：
+- fork 后先钉住自己的 `base_ref` 与 feeds，不要跟分支走，否则无法复现
+- 保留 defconfig 守卫、targetinfo DEVICE_PACKAGES 校验、无线校验、factory 结构校验：它们专防配置符号被 defconfig 静默丢掉
+- 保留 draft → 验摘要 → 发布：不要直接发布未验的镜像
+- 加设备先看 [docs/adding-devices.md](docs/adding-devices.md)：先把硬件定义清楚（丝印、FEM、caldata），再做 profile / DTS，回来复制配置、往 workflow 加映射，最后上机跑冒烟测试
 
-- `nss-tools-dwmac` 必须选 `=y`，不能是 `=m`，否则镜像启动后 NSS
-  是静默不工作的（`fw_mask` 一直是 `0x0`，且没有任何报错）。
-- 内核 flow offloading（flowtable）必须关：它会在 ECM 分类之前
-  抢走已建立的 TCP 流，导致 ECM 永远看不到流，固件把每个包都
-  异常送回 host，CPU 占用 30–60% 而不是 3–5%。
-- 交换机桥上的 IGMP snooping 必须关（底包默认即关）。
-- 驱动必须按所装固件的版本编译：12.5 的驱动配 12.2 的固件
-  （或反过来）能通流量，但 Wi-Fi 计数器会一直是 0。
+注意事项（硬约束）：
 
-## 设备状态
+- `nss-tools-dwmac` 必须 `=y`，不能 `=m`，否则 NSS 静默不工作且无任何报错
+- 内核 flow offloading 必须关，否则 ECM 看不到流量
+- 驱动必须与固件版本对应（12.5 驱动配 12.2 固件，或反过来，WiFi 计数器会一直是 0）
+- ART 分区名大小写敏感：caldata 脚本按 `/proc/mtd` 精确匹配，`0:ART` 与 `0:art` 写错一个字母就没 WiFi；移植前先看自己板子的 `/proc/mtd`
+- trigsoft 链 NAND ECC 用 4-bit；8-bit 会导致 trigsoft 写过的页无法解码（UBI 挂不上）
+- 分区布局：合并分区用 fixed-partitions（smem-part 在 trigsoft 合并表上会失败）；原厂布局用 smem-part；两者不要混用
+- M79 的 2.4G 没有 PA（MXD7223 只有 LNA + 收发切换）：2.4G 弱是硬件，改配置修不好；M81（CTR66266）才有正常 2.4G
+- B版（YT9215S）在 NSS 树里没有 Linux 驱动，不要把 A版固件往 B版上刷
+- NSS 固件是专有二进制 blob，不是开源软件；不要把它说成开源，也不要把它直接塞进仓库（编译时由 feed 链路获取）
+- 各设备的 caldata 来自设备自己的 ART 分区，不要拷别的板子的 caldata
+- 这是 SNAPSHOT，不是稳定版：底包与 feeds 已钉住以保证复现，rebase 时请重新钉住并验证
 
-先讲清楚层级，免得把版号当成型号：
+## 合规
 
-- **型号**：CR8806、CR8808、CR8809（运营商后缀不同，配置一样）；CR8816/8818/8819 是另一路型号。
-- **主板版号**：同一型号内不同批次的主板，M79、M81——CR8808 就有 M79 和 M81 两种主板，认板要看主板，不能只看型号。
-- **板型**：也是板子的版本，不是型号——A版与 B版的交换芯片、RAM/布局都不同。
-
-下面这张表就按这个层级排：型号是行（用同一个固件的型号并成一行），版号和板型是列，不要把 M79、M81、A、B 当成单独的型号来读。也不要假设一个镜像能通吃：版号、板型不同，固件未必通用。
-
-| 型号 | 主板版号 | 板型 | 状态 | 说明 |
-|---|---|---|---|---|
-| CR8806 / CR8808 / CR8809 | M79 | A版 | ✅ 基线（CR8806）/ ⏳ 待实测（CR8808/CR8809） | 共用同一个固件（`xiaomi_cr8806`，底包 profile 自带 ALT0=CR8808、ALT1=CR8809，同 DTS `config@mp02.1`、128 MB NAND）。CR8806 是基线，#6 已发布；CR8808/CR8809 靠 ALT 认机，理论上同一个镜像就能认，但必须上机实测，不能只凭 ALT 就承诺。256 MB 内存，Linux 可见约 169 MiB，空闲时只剩 20–30 MiB，大包要先算内存账；LuCI 已保留，若 OOM 先砍它。 |
-| CR8808 | M81 | A版 | 🔨 可编译，待上机验证 | M81 的 DTS、设备条目、配置、工作流选项都已就绪；板数据取自 hzyitc 的 redmi_ax3000 板文件（2.4G 文件含 M79/M81 两个 board-id 条目，M81 DTS 用 board_id 0x24 选中 M81 条目；5G 共用 board_id 0x60），工作流在编译时按钉住的提交 + sha256 拉取校验。LED/按键 GPIO 与 NAND 布局仍是从 M79 照抄，未经 M81 硬件验证；2.4G 功率也需上机实测。 |
-| CR8816/8818/8819 | M79 | B版 | ❌ NSS 树上目前不支持 | 交换芯片 YT9215S 尚无 Linux 内核驱动（yangfl 正在写驱动并有 cr8818 DTS，mainline 方向，非 NSS；hzyitc 有 swconfig 版驱动，但与 NSS datapath 不兼容），且与 A版固件不通用，刷错砖。 |
-
-### CR880x 硬件细分
-
-芯片层面的细分依据（为什么版号、板型不同就不能通刷）：
-
-| 版号与板型 | 型号 | SoC | 交换芯片 | 2.4G FEM | 5G FEM | 关键后果 |
-|---|---|---|---|---|---|---|
-| A版 M81 | CR8808 M81（Redmi AX3000 同一路） | IPQ5000 | QCA8337 | CTR66266 | RTC66568 | 通刷公版固件，2.4G 正常 |
-| A版 M79 | CR8806、CR8808 M79、CR8809 | IPQ5000 | QCA8337 | MXD7223 | RTC66568 | 通刷公版固件，2.4G 功率减半、信号弱 |
-| B版 M79 | CR8816/8818/8819（即 CR881x） | IPQ5018 | YT9215S | MXD7223 | RTC66568 | 与 A版固件不通用，刷错砖 |
-
-- MXD7223 没有集成 PA，只有 LNA 和收发切换开关，属于 RX FEM；
-  CTR66266 个别资料写作 CTR66226，疑为同一颗的笔误。
-- 细分到移植层面：交换芯片不同（QCA8337 vs YT9215S）必须分设备、
-  分 DTS，这是硬边界；FEM 不同不用分 DTS（hzyitc 就是一个
-  ax3000 DTS + ALT 标签 cover M79/M81 两路），但板数据
-  （BDF/caldata）必须分开，不然 M79 的 2.4G 就弱；kuncy7 语境
-  里就是不同的 `ipq-wifi-*` 包（或同一个包里不同的板条目）。
-- 底包现状：cr8806 profile 只 cover 了 A版 M79（M79 + ALT 8808/
-  8809 M79，`ipq-wifi-xiaomi_cr8806`），没有 M81 变体，也没有
-  B版（CR881x）设备；补 M81 主要是补板数据，补 B版要新设备 +
-  新 DTS。B版最大的硬点是 YT9215S 驱动：Linux 内核尚不支持
-  （yangfl 正在写驱动并有 cr8818 DTS，mainline 方向，非 NSS；
-  hzyitc 有 swconfig 版驱动，但与 NSS datapath 不兼容），
-  所以 B版在 NSS 树上目前不可行，先放最后。
-- 注意：底包 SOC 栏写 ipq5018 不等于 B版，A版 DTS 的 compatible
-  也是 `qcom,ipq5018`，区分 A/B 要看交换芯片和 RAM/布局。
-- A版 M81 实现状态：DTS 注入 + 设备条目 + 配置 + 工作流选项都已
-  就绪，板数据已从 hzyitc 的 redmi_ax3000 板文件落实（见设备状态
-  表），只剩上机验证。
-
-### 固件支持的设备型号
-
-每次发布（release 说明里也会写）按固件 profile 分，认准再刷：
-
-| 固件（profile） | 支持的设备 | 不支持 |
-|---|---|---|
-| xiaomi_cr8806（当前发布，Build #6） | CR8806（A版 M79，基线）；CR8808（A版 M79）、CR8809（A版 M79）（ALT 认机，待上机实测） | CR8808（A版 M81）、CR881x（B版，含 B版 M79） |
-| xiaomi_cr8808（M81，未发布） | CR8808（A版 M81） | 其余所有型号 |
-
-A版 M79 三款能共用一个固件，是因为底包里它们是同一个 profile 的
-ALT（同 A版 M79、同 DTS）；不同版号、板型的交换芯片、板数据
-不同，固件不通用，刷错可能变砖。
-
-以下在 CR8806 上明确**未测试**（不要在发布说明里承诺）：
-NAT/路由模式吞吐、IPv6、多个 Wi-Fi 客户端、LED/按键、
-SQM、dnsmasq 缓存的实际效果。
-
-## 编译是怎么跑的
-
-`.github/workflows/build-ipq50xx.yml`，手动触发
-（`workflow_dispatch`），流程：
-
-1. 克隆底包到 `base_ref` 指定的提交（默认是 2026-11-02 在底包
-   主页上看到的 `c3po-tag-8021q` HEAD 提交）。
-2. 恢复 ccache 缓存（`openwrt/.ccache`）。
-3. `./scripts/feeds update -a && ./scripts/feeds install -a`，
-   并检查 nss feed 里有 `qca-nss-drv`。
-4. 从上游拉 Argon 主题和配置（底包 feed 里没有），并安装。
-5. 把 `configs/<设备>.config` 拷成 `.config`，按 `firmware`
-   输入选择 12.5 或 12.2，跑 `make defconfig`，然后逐项检查
-   关键符号确实留下来了（符号名写错会被 defconfig 静默丢掉，
-   这一步就是防这个）。
-6. 把仓库 `files/` 打进镜像（首次开机脚本等），
-   uci-defaults 脚本在镜像里需要可执行权限，工作流里处理。
-7. `make download`，然后 `make -j$(nproc)`，失败自动退回
-   `make -j1 V=s` 打详细日志。
-8. 整理 artifacts：sysupgrade 镜像、factory 镜像、initramfs
-   镜像（如果有）、`config.buildinfo`、`feeds.buildinfo`、
-   `sha256sums.txt`；其中 sysupgrade 和 factory 是强制项，
-   缺了就失败，不会发一个不完整的 Release。
-9. 上传 artifacts，并发一个 Release（tag 是
-   `设备-日期-运行号-尝试号`，每次运行一个独立 Release，
-   重跑换新 tag）。
-10. 删旧缓存、删旧工作流（保留 2 天），失败不影响任务。
-
-触发参数：
-
-- `device`：设备 profile，当前只有 `xiaomi_cr8806`。
-- `firmware`：`12.5`（默认）或 `12.2`（备选）。注意驱动按固件
-  版本编译，两个版本不要混用。
-- `base_ref`：底包提交， rebase 时更新。
-
-## 首次安装（CR8806）
-
-- 首次安装走 UART（115200 8N1）+ TFTP，启动 initramfs
-  （`config@mp02.1`），把 factory.ubi 写到另一个 slot；之后
-  升级用 sysupgrade。
-- 双 slot 写错有变砖风险，操作前确认自己板子的 slot 布局，
-  不要照搬别板子的步骤；刷之前先备份原厂固件。
-- ⚠️ factory.ubi 是 OpenWrt 的 UBI 镜像，不是原厂格式固件：
-  只能在已启动的 initramfs 系统里写到固件 UBI 分区，**不能
-  当成原厂固件用引导的 web 恢复随便刷**——写到错误的分区
-  （尤其是引导分区），或按原厂固件的方式写到固件区，
-  都会变砖（2026-11-03 已有因此变砖的案例）。
-- ⚠️ 从 HZYITC 系统（双分区合并成一个 UBI）过来的用户：
-  不能直接 sysupgrade（尤其不能强制刷），两边分区布局
-  对不上，刷完重启还是原系统；必须走上面这条 UART +
-  TFTP 首次安装路径。
-- 万一刷坏进不去系统：断电，按住 reset 再通电，多试几次
-  才能进 U-Boot web（进入时机比较挑）；能进 web 就能刷回
-  已知好的固件。
-- 首次开机先在 LuCI 里设 root 密码（OpenWrt 默认 root 没密码）。
-
-## 装好后怎么验证 NSS 真在工作
-
-```sh
-ls /etc/rc.d | grep S19nss
-# 应该有 nss 服务
-
-logread -e nss
-# 最后应该出现 "NSS wired plane + ECM up"
-
-cat /sys/kernel/debug/qca-dwmac-nss/status
-# 端口应该显示 started
-
-# 跑流量时：
-cat /sys/kernel/debug/ecm/ecm_nss_ipv4/tcp_accelerated_count
-# 应该 > 0
-
-grep -m1 ipv4_rx_pkts /sys/kernel/debug/qca-nss-drv/stats/ipv4
-# 应该持续上涨
-
-nft list flowtables
-# 应该什么都不输出（有 flowtable 说明 flow offloading 还开着，ECM 会被饿死）
-
-top
-# 满速流量下 idle 应该保持在 90% 以上
-```
-
-## 加设备
-
-见 [docs/adding-devices.md](docs/adding-devices.md)。一句话概括：
-先从硬件上把板子定义清楚（丝印、FEM、caldata），再到底包里做
-profile/DTS，回来复制一份配置、往 workflow 矩阵里加一行、
-上机跑一遍上面的冒烟测试。CR8808/CR8809 M79 目前看不用移植，
-先按 cr8806 同镜像实测；M81 版和 B版见细分表。
-
-## 合规说明
-
-- 发布镜像时请一并附上当次编译的 `config.buildinfo` 和
-  `feeds.buildinfo`（workflow 已经收集），这是 GPL 源码提供
-  义务的一部分。
-- NSS 固件是专有二进制 blob，不是开源软件，不要在宣传里
-  把它说成开源；也不要把 blob 直接塞进本仓库，编译时由
-  feed 链路获取。
-- 各设备的校准数据（caldata）来自设备自己的 ART 分区，
-  不要把别的板子的 caldata 拷进镜像。
-
-## 未确认事项
-
-- 底包提交 pin：workflow 默认的 `base_ref` 已核对为 `c3po-tag-8021q`
-  的 HEAD 提交（2026-10-31），rebase 时更新。
-- feed 钉住：仓库 `feeds.conf` 已钉住第 5 次编译的全部 feed 提交
-  （packages 24f7c066、luci ae19cdfd、routing ea8633da、
-  telephony 9bcb6d71、video 4582d70f、nss 4fa071ab），工作流在
-  feeds update 前拷过去；之前 packages 和 luci 在第 1 次和第 5 次
-  编译之间都动过，不钉住就无法复现。
-- 新增的特性（Argon、SQM、SmartDNS、O3 等）已在第 5 次编译
-  （2026-11-03）中编出并发布，上机实测仍待做；
-  bridge-mgr 已确认不在 ipq50xx 上（见上），已从配置里去掉；
-  Fullcone、luci-app-cpufreq、luci-app-arpbind 已确认不在钉住的
-  feed 里（packages/net 在 18af3f1b 没有 fullcone，luci 在
-  5599f42b 没有 cpufreq/arpbind），已从配置里去掉；不要在没
-  核对 feed 的情况下把它们加回来。
-  `.config` 里的符号名 workflow 会在 defconfig 后逐项核对，
-  核对不过就失败，不会静默出一个缺功能的包。
-- factory.ubi 的产出：按 UbiFit 默认规则会产，工作流已把它
-  列为强制 artifact，下次编译验证。
-- CR8806 上机功能（NAT/IPv6/多客户端/WiFi/SQM/
-  dnsmasq 缓存）尚未实测。
-- CR880x 硬件细分见上表（A版/B版 × M79/M81，FEM 与交换芯片是分水岭）。
+- 发布镜像时一并附带当次编译的 `config.buildinfo` 与 `feeds.buildinfo`（workflow 已收集），这是 GPL 源码提供义务的一部分
+- NSS 固件是专有二进制 blob，不是开源软件；caldata 来自设备自己的 ART 分区
