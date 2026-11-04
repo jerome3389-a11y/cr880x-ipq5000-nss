@@ -688,34 +688,42 @@ jobs:
           python3 ../scripts/verify-factory-ubi.py "$FACTORY"
           echo "=== FACTORY IMAGE OK ==="
 
+      # Release files are firmware only: the release carries factory.ubi
+      # and nothing else. sysupgrade is unusable on this device (no
+      # platform upgrade script) and initramfs is a first-install-only
+      # image; buildinfo, the resolved .config and the sources ledger
+      # are diagnostic records, not release files. They go to
+      # diagnostics/ (workflow artifact, not release) so debugging a
+      # build does not lose them. The checksum file lives in
+      # diagnostics/ too (the draft contains only firmware, so the
+      # Verify step checks the downloaded factory.ubi against it).
       - name: Stage artifacts
         run: |
           set -Eeuo pipefail
           trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          mkdir -p artifacts
+          mkdir -p artifacts diagnostics
           cd openwrt
-          cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*sysupgrade.bin ../artifacts/ 2>/dev/null || true
-          cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*initramfs* ../artifacts/ 2>/dev/null || true
           cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*factory.ubi ../artifacts/ 2>/dev/null || true
-          cp bin/targets/qualcommax/ipq50xx/config.buildinfo ../artifacts/ 2>/dev/null || true
-          cp bin/targets/qualcommax/ipq50xx/feeds.buildinfo ../artifacts/ 2>/dev/null || true
+          cp bin/targets/qualcommax/ipq50xx/config.buildinfo ../diagnostics/ 2>/dev/null || true
+          cp bin/targets/qualcommax/ipq50xx/feeds.buildinfo ../diagnostics/ 2>/dev/null || true
           # Stage the full resolved .config (upstream-style): the
           # buildinfo files show deltas only; the resolved config is
           # what actually built, and it is the diagnostic record.
-          cp .config ../artifacts/"${{ matrix.device }}.config" 2>/dev/null || echo "(no .config to stage)"
-          cp ../third-party-sources.txt ../artifacts/ 2>/dev/null || echo "(no third-party-sources ledger)"
-          # The sysupgrade image and the factory image are mandatory;
-          # fail loudly without them so a release is never incomplete.
-          ls ../artifacts/*sysupgrade.bin
+          cp .config ../diagnostics/"${{ matrix.device }}.config" 2>/dev/null || echo "(no .config to stage)"
+          cp ../third-party-sources.txt ../diagnostics/ 2>/dev/null || echo "(no third-party-sources ledger)"
+          # The factory image is mandatory; fail loudly without it so
+          # a release is never incomplete.
           ls ../artifacts/*factory.ubi
-          cd ../artifacts && sha256sum * > sha256sums.txt
-          ls -l ../artifacts
+          cd ../artifacts && sha256sum * > ../diagnostics/sha256sums.txt
+          ls -l ../artifacts ../diagnostics
 
       - name: Upload artifacts
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5
         with:
           name: ipq50xx-${{ matrix.device }}-nss-fw${{ inputs.firmware }}
-          path: artifacts/
+          path: |
+            artifacts/
+            diagnostics/
           if-no-files-found: error
           # Images are already compressed; recompressing them wastes
           # time (upstream-style).
@@ -765,30 +773,21 @@ jobs:
           draft: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            IPQ50xx NSS firmware build (kernel 6.18, NSS firmware ${{ inputs.firmware }}).
+            IPQ50xx NSS firmware (kernel 6.18, NSS firmware ${{ inputs.firmware }}).
 
             - Device profile: ${{ matrix.device }}
             - Supported models: ${{ env.SUPPORTED_MODELS }}
             - Base tree: kuncy7/openwrt-nss-edma, branch c3po-tag-8021q, commit ${{ inputs.base_ref }}
-            - Feed versions: ${{ env.FEEDS_VERSION }}
-            - Argon theme: jerrykuku/luci-theme-argon (${{ env.ARGON_THEME_COMMIT }})
-            - Argon config: jerrykuku/luci-app-argon-config (${{ env.ARGON_CONFIG_COMMIT }})
-            - Build: #${{ github.run_number }}, attempt ${{ github.run_attempt }}
 
-            Attached files: sysupgrade image, factory image, initramfs image (if built), config.buildinfo, feeds.buildinfo, sha256sums.txt.
+            Flash: trigsoft web UI (192.168.10.1) → factory.ubi. sysupgrade is unusable on this device (no platform upgrade script).
 
-            First install: UART + TFTP, boot the initramfs image, then write factory.ubi from the booted system to the other slot; later upgrades use sysupgrade.
-
-            WARNING: factory.ubi is an OpenWrt UBI image for the firmware UBI partition, not OEM firmware. Install it only from a booted OpenWrt initramfs system to that partition (first-install path above). Flashing it to any other partition — including through a bootloader web recovery pointed at the wrong target — bricks the device (confirmed 2026-11-03). Do not sysupgrade to this firmware from a system with a different partition layout (e.g. a merged single-UBI layout); use the first-install path above.
-
-            Flash only the listed models. Do not flash across models, board revisions (M79/M81) or A/B versions; a wrong image can brick the device.
+            WARNING: factory.ubi is an OpenWrt UBI image for the firmware UBI partition, not OEM firmware. Flashing it to any other partition bricks the device. Flash only the listed models; do not flash across models, board revisions (M79/M81) or A/B versions.
 
       # Draft digest verification (yingjiedev-style, two-phase): download
-      # the just-created draft's assets and compare against the staged
-      # sha256sums.txt. A mismatch fails the job. Only the next step
-      # publishes the release, so a bad release can never go public
-      # (previously this verified after publishing: detection, not
-      # prevention).
+      # the just-created draft's firmware and compare it against
+      # diagnostics/sha256sums.txt (the checksum file is a diagnostic,
+      # not a release file). A mismatch fails the job. Only the next
+      # step publishes the release, so a bad release can never go public.
       - name: Verify release digests
         run: |
           set -Eeuo pipefail
@@ -804,7 +803,10 @@ jobs:
             attempt=$((attempt + 1))
           done
           cd /tmp/release-verify
-          sha256sum -c sha256sums.txt || { echo "::error::RELEASE DIGEST MISMATCH"; exit 1; }
+          # The draft contains only firmware; the checksum file lives in
+          # diagnostics/ (not in the release), so check the downloaded
+          # factory.ubi against its line there.
+          grep 'factory\.ubi' "$GITHUB_WORKSPACE/diagnostics/sha256sums.txt" | sha256sum -c - || { echo "::error::RELEASE DIGEST MISMATCH"; exit 1; }
           echo "=== RELEASE DIGESTS OK ==="
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

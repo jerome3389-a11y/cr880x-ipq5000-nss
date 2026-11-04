@@ -47,7 +47,7 @@
 ## 刷机与首次开机
 
 - 当前设备（trigsoft 合并分区，单 rootfs）：按住 reset 通电进 trigsoft web UI（192.168.10.1），刷 `factory.ubi`。`factory.ubi` 是 OpenWrt UBI 镜像，不是原厂格式，不要当原厂固件刷到别的分区。
-- sysupgrade 不可用：本设备无平台升级脚本，release 里附带的 sysupgrade 镜像不要用于本设备；升级请用 trigsoft web UI 重刷 `factory.ubi`（会清空配置）。
+- sysupgrade 不可用：本设备无平台升级脚本；升级请用 trigsoft web UI 重刷 `factory.ubi`（会清空配置）。
 - 首次安装（原厂分区布局）：UART（115200 8N1）+ TFTP，启动 initramfs，把 `factory.ubi` 写到固件 UBI 分区；刷前备份原厂固件。
 - 刷坏恢复：断电，按住 reset 再通电，多试几次进 trigsoft web UI，刷回已知好的固件。
 - 首次开机：立即设 root 密码 + WiFi 密码（出厂 radio 全开且开放网络）。
@@ -56,7 +56,7 @@
 
 - `.github/workflows/build-ipq50xx.yml`（瘦调用方）+ `build-ipq50xx-shared.yml`（共用构建），手动触发（`workflow_dispatch`）
 - 输入：`device`（`xiaomi_cr8806` / `xiaomi_cr8808`）、`firmware`（`12.5` 默认 / `12.2`）、`base_ref`（底包提交，默认钉住值）
-- 每次成功编译发一个独立 Release（tag `设备-日期-运行号-尝试号`）：先发 draft，验远端摘要通过后再发布，坏版永不公开；附带 factory / sysupgrade / initramfs 镜像、`config.buildinfo`、`feeds.buildinfo`、完整 `.config`、`sha256sums.txt`、第三方来源清单
+- 每次成功编译发一个独立 Release（tag `设备-日期-运行号-尝试号`）：先发 draft，验远端摘要通过后再发布，坏版永不公开；release 里只有固件（`factory.ubi`）；buildinfo、完整 `.config`、校验文件与第三方来源清单只作 workflow 诊断产物，不进 release
 - 缓存：ccache 按工具链 + 编译器键入，staging / dl 按配置哈希键入；旧缓存与旧工作流自动清理（工作流保留 2 天，Release 不受影响）
 - 要加功能请重编译：本项目不提供自建 kmod 仓库；kmod 包带内核 vermagic，只能装在同一编译的内核上
 
