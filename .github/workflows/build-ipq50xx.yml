@@ -247,6 +247,15 @@ jobs:
             '^CONFIG_NSS_MEM_PROFILE_LOW=y$' \
             '^CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe=y$' \
             '^CONFIG_PACKAGE_ath11k-firmware-ipq5018-qcn6122=y$' \
+            '^CONFIG_DRIVER_11AC_SUPPORT=y$' \
+            '^CONFIG_DRIVER_11AX_SUPPORT=y$' \
+            '^CONFIG_PACKAGE_kmod-ath11k=y$' \
+            '^CONFIG_PACKAGE_kmod-mac80211=y$' \
+            '^CONFIG_PACKAGE_kmod-cfg80211=y$' \
+            '^CONFIG_PACKAGE_kmod-ath=y$' \
+            '^CONFIG_PACKAGE_wpad-basic-mbedtls=y$' \
+            '^CONFIG_PACKAGE_iw=y$' \
+            '^CONFIG_PACKAGE_iwinfo=y$' \
             '^CONFIG_PACKAGE_zram-swap=y$' \
             '^CONFIG_PACKAGE_kmod-lib-lz4=y$' \
             '^CONFIG_KERNEL_ZRAM_BACKEND_LZ4=y$' \
@@ -280,6 +289,14 @@ jobs:
           else
             grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_2=y$' .config || { echo "MISSING: NSS_FIRMWARE_VERSION_12_2"; fail=1; }
           fi
+          # Wireless gate status: print the exact symbols so that a drop
+          # reports its gate in the log at this step instead of needing
+          # guesswork afterwards (Build #9 shipped WiFi-less because the
+          # guard only checked the firmware line).
+          echo "--- wireless symbols after defconfig ---"
+          for s in CONFIG_DRIVER_11AC_SUPPORT CONFIG_DRIVER_11AX_SUPPORT CONFIG_PACKAGE_kmod-ath11k CONFIG_PACKAGE_kmod-mac80211 CONFIG_PACKAGE_kmod-cfg80211 CONFIG_PACKAGE_kmod-ath CONFIG_PACKAGE_ath11k-firmware-ipq5018-qcn6122 CONFIG_PACKAGE_wpad-basic-mbedtls CONFIG_PACKAGE_iw CONFIG_PACKAGE_iwinfo; do
+            grep -E "^#? ?${s}(=| is not set)" .config || echo "$s: absent"
+          done
           [ "$fail" = 0 ] || exit 1
 
       - name: Install files overlay
@@ -313,6 +330,25 @@ jobs:
           echo "Build started: $(date)"
           make -j"$(nproc)" || make -j1 V=s
           echo "Build finished: $(date)"
+
+      - name: Verify wireless stack built
+        run: |
+          cd openwrt
+          # Fail fast with the exact missing piece instead of publishing
+          # a WiFi-less release that only shows up on the router (Build #9).
+          fail=0
+          for pat in \
+            '^CONFIG_PACKAGE_kmod-ath11k=y$' \
+            '^CONFIG_PACKAGE_kmod-mac80211=y$' \
+            '^CONFIG_PACKAGE_kmod-cfg80211=y$' \
+            '^CONFIG_PACKAGE_ath11k-firmware-ipq5018-qcn6122=y$' \
+            '^CONFIG_PACKAGE_wpad-basic-mbedtls=y$' \
+            '^CONFIG_PACKAGE_iw=y$' \
+            ; do
+            grep -q "$pat" bin/targets/qualcommax/ipq50xx/config.buildinfo || { echo "BUILT CONFIG MISSING: $pat"; fail=1; }
+          done
+          find bin/targets/qualcommax/ipq50xx -name 'kmod-ath11k_*.ipk' | grep -q . || { echo "MISSING: no kmod-ath11k ipk built"; fail=1; }
+          [ "$fail" = 0 ] || exit 1
 
       - name: Stage artifacts
         run: |
