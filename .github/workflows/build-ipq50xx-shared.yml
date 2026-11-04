@@ -783,6 +783,10 @@ jobs:
 
             Flash: trigsoft web UI (192.168.10.1) → factory.ubi. sysupgrade is unusable on this device (no platform upgrade script).
 
+            Default credentials (public defaults, change after flashing if you want):
+            - WiFi: SSID OpenWrt (2.4G) / OpenWrt_5G (5G), password 12345678 (WPA2)
+            - Root: password password
+
             WARNING: factory.ubi is an OpenWrt UBI image for the firmware UBI partition, not OEM firmware. Flashing it to any other partition bricks the device. Flash only the listed models; do not flash across models, board revisions (M79/M81) or A/B versions.
 
       # Draft digest verification (yingjiedev-style, two-phase): download

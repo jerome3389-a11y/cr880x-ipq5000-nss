@@ -25,7 +25,7 @@
 
 - 无线：IPQ5018（2.4G）+ QCN6122（5G），ath11k，双频 WiFi 6（802.11ax）；双频广播已在 CR8808（A版 M79）上机验证
 - 出厂默认：双频 radio 全开、SSID 分开（2.4G `OpenWrt` / 5G `OpenWrt_5G`）、802.11k + 802.11v 默认开、802.11r + 802.11s 默认关（LuCI 里可手动开）；完整版 wpad-mbedtls（与 basic 同为 mbedtls 后端，另含 WNM 与 MESH）；WPA3-SAE 可用
-- 出厂为开放网络：刷机后请立即在 LuCI 里设 WiFi 密码；root 密码同样需在刷机后设置（LuCI 密码页用户名默认 root，只需填新密码 + 确认 + 保存；或 SSH `passwd`）
+- 出厂默认凭证（公开默认值，刷后可改）：WiFi SSID OpenWrt（2.4G）/ OpenWrt_5G（5G），密码 12345678（WPA2）；root 密码 password（LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `passwd`）
 - DNS：dnsmasq-full + adblock（默认开启，规则源 anti_ad / adguard / yoyo / disconnect，列表首次开机联网后下载）；LAN 53 端口 DNS 劫持到路由器本机；dnsmasq 缓存 1000；无 SmartDNS
 - 网络：DSA（lan / wan）、BBR（首次开机设为默认拥塞算法）、zram（lz4，LZO 备用）、内核 flow offloading 关、IGMP snooping 关、SQM 关
 - 工具：htop、zoneinfo-asia、luci-app-upnp、tcpdump-mini、iw（无线调试）、ca-bundle
@@ -50,7 +50,7 @@
 - sysupgrade 不可用：本设备无平台升级脚本；升级请用 trigsoft web UI 重刷 `factory.ubi`（会清空配置）。
 - 首次安装（原厂分区布局）：UART（115200 8N1）+ TFTP，启动 initramfs，把 `factory.ubi` 写到固件 UBI 分区；刷前备份原厂固件。
 - 刷坏恢复：断电，按住 reset 再通电，多试几次进 trigsoft web UI，刷回已知好的固件。
-- 首次开机：立即设 root 密码 + WiFi 密码（出厂 radio 全开且开放网络）。
+- 首次开机：出厂 radio 全开，WiFi 与 root 均已设默认凭证（见上）；默认值是公开的，建议刷后改掉。
 
 ## 编译
 
