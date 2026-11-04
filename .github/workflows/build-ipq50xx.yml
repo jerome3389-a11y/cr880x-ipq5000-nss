@@ -39,7 +39,7 @@ on:
         required: true
         default: "13e8bc914709c4794b3ec7b0421d2038386e697e"
 
-# Release creation needs contents:write; the ccache step needs actions:write
+# Release creation needs contents:write; the cache steps need actions:write
 # for cache save and restore (an explicit permissions block otherwise
 # leaves the actions scope at none and the cache calls fail).
 permissions:
@@ -49,12 +49,22 @@ permissions:
 env:
   BASE_REPO: https://github.com/kuncy7/openwrt-nss-edma.git
   TZ: Asia/Shanghai
+  # ccache tuning (kuncy7-style): content-based compiler check so a
+  # compiler mtime change does not invalidate the cache, 4G cap.
+  CCACHE_COMPILERCHECK: content
+  CCACHE_MAXSIZE: 4G
 
 jobs:
   build:
     name: Build ${{ inputs.device }} (NSS FW ${{ inputs.firmware }})
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    # Serialize runs per device (upstream-style): two runs sharing the
+    # cache and the release must never overlap, and a queued run must
+    # wait rather than cancel the running build.
+    concurrency:
+      group: ipq50xx-${{ matrix.device }}
+      cancel-in-progress: false
     strategy:
       # To add a device later: add its profile name here AND a mapping line in
       # the "Apply device config" step AND a config file in configs/.
@@ -64,7 +74,23 @@ jobs:
         device: ["${{ inputs.device }}"]
     steps:
       - name: Checkout scaffold repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+        with:
+          persist-credentials: false
+
+      # Log baseline (upstream-style): CPU/mem/disk first, so a later
+      # disk/memory failure can be read against the starting state.
+      - name: Check server performance
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          echo "--- CPU ---"
+          nproc
+          grep -m1 "model name" /proc/cpuinfo
+          echo "--- memory ---"
+          free -h
+          echo "--- disk ---"
+          df -hT
 
       - name: Install build dependencies
         run: |
@@ -76,14 +102,39 @@ jobs:
             python3-setuptools rsync swig unzip zlib1g-dev file wget \
             libelf-dev
 
+      # Free disk space (kuncy7-style): a full build with staging cache
+      # needs ~26 GB; stock runners carry dotnet/android/ghc/CodeQL
+      # images that eat it. Remove them before cloning.
+      - name: Free disk space
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          command -v docker >/dev/null && docker image prune --all --force || true
+          df -hT
+
       - name: Clone base tree at pinned commit
+        env:
+          GIT_HTTP_LOW_SPEED_LIMIT: 1000
+          GIT_HTTP_LOW_SPEED_TIME: 60
         run: |
           set -Eeuo pipefail
           trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           git init openwrt
           cd openwrt
           git remote add origin "$BASE_REPO"
-          git fetch --depth 1 origin "${{ inputs.base_ref }}"
+          # Retry the fetch (upstream-style): a transient network flake
+          # must not fail the whole run. Warn per attempt, back off.
+          attempt=1
+          until git fetch --depth 1 origin "${{ inputs.base_ref }}"; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::CLONE FAILED after 3 fetch attempts"
+              exit 1
+            fi
+            echo "::warning::fetch attempt $attempt failed, retrying..."
+            sleep "$((attempt * 5))"
+            attempt=$((attempt + 1))
+          done
           git checkout FETCH_HEAD
           git log --oneline -1
           # Sanity: this must be the NSS tree, not plain OpenWrt.
@@ -106,7 +157,7 @@ jobs:
               cat "$inc" >> target/linux/qualcommax/image/ipq50xx.mk
             done
             for f in ../dts/*.dts; do
-              test -f "target/linux/qualcommax/dts/$(basename "$f")" || { echo "DTS COPY FAILED: $f"; exit 1; }
+              test -f "target/linux/qualcommax/dts/$(basename "$f")" || { echo "::error::DTS COPY FAILED: $f"; exit 1; }
             done
           fi
           echo "=== CUSTOM DEVICES INJECTED ==="
@@ -132,6 +183,7 @@ jobs:
               "$HZY_BASE/board-redmi_ax3000.qcn6122"
             echo "a1d03029566e469ceee4d570324dfa015f3d01e351bc87c81329ffdd7a7c4186  ../files-xiaomi_cr8808/lib/firmware/ath11k/IPQ5018/hw1.0/board-2.bin" | sha256sum -c -
             echo "91c689226aa5a3af853063452393055c5e764866fec707ccd504738314e75134  ../files-xiaomi_cr8808/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin" | sha256sum -c -
+            echo "hzyitc/openwrt-redmi-ax3000 $HZY_COMMIT board-redmi_ax3000.ipq5018 board-redmi_ax3000.qcn6122" >> ../third-party-sources.txt
           fi
 
       - name: Patch cr8806 NAND ECC to 4-bit (trigsoft chain)
@@ -157,26 +209,26 @@ jobs:
           # is fixed repo-side in dts/ipq5018-cr8808.dts; this step
           # only affects cr8806.)
           DTS="target/linux/qualcommax/dts/ipq5018-cr8806.dts"
-          test -f "$DTS" || { echo "ERROR: $DTS not found"; exit 1; }
+          test -f "$DTS" || { echo "::error:: $DTS not found"; exit 1; }
           if [ "$(grep -c 'nand-ecc-strength = <8>;' "$DTS" || true)" -ne 0 ]; then
             sed -i '/^&qpic_nand/,/^};/ s/nand-ecc-strength = <8>;/nand-ecc-strength = <4>;/' "$DTS"
           fi
           echo "--- after patch ---"
           grep -n 'nand-ecc-strength' "$DTS"
           if [ "$(grep -c 'nand-ecc-strength = <4>;' "$DTS" || true)" -ne 1 ]; then
-            echo "ERROR: expected exactly one 4-bit strength"
+            echo "::error:: expected exactly one 4-bit strength"
             exit 1
           fi
           if [ "$(grep -c 'nand-ecc-strength = <8>;' "$DTS" || true)" -ne 0 ]; then
-            echo "ERROR: 8-bit strength still present after patch"
+            echo "::error:: 8-bit strength still present after patch"
             exit 1
           fi
           # Guard: the fixed-partitions override must have landed
           # (SMEM_PART.md §6.1). Fail closed if the DTS still uses
           # the SMEM-table parser node or lacks fixed-partitions.
-          grep -q 'compatible = "fixed-partitions";' "$DTS" || { echo "ERROR: fixed-partitions not found in $DTS (override did not land?)"; exit 1; }
+          grep -q 'compatible = "fixed-partitions";' "$DTS" || { echo "::error:: fixed-partitions not found in $DTS (override did not land?)"; exit 1; }
           if grep -q 'qcom,smem-part' "$DTS"; then
-            echo "ERROR: qcom,smem-part still present in $DTS"
+            echo "::error:: qcom,smem-part still present in $DTS"
             exit 1
           fi
 
@@ -204,26 +256,62 @@ jobs:
       # post-action; the Delete old caches step below removes older
       # entries first, so only the fresh entry survives. A cache save or
       # restore failure only warns and never fails the build.
-      - name: Restore build cache
-        uses: actions/cache@v5
+      # Split caches (upstream-style): ccache, staging and dl each get
+      # their own entry, keyed by device + customization content hash
+      # (feeds.conf, configs, dts) + run id, with tiered restore keys
+      # (exact customization -> base commit -> device). A customization
+      # change still falls back to the previous cache, and make's stamp
+      # checking rebuilds only what changed. Cache save happens in each
+      # step's post-action; a save/restore failure only warns and never
+      # fails the build.
+      - name: Restore ccache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25  # v5
         with:
-          key: ipq50xx-${{ inputs.device }}-ccache-${{ inputs.base_ref }}-${{ github.run_id }}
+          key: ipq50xx-${{ inputs.device }}-ccache-${{ hashFiles('feeds.conf', 'configs/**', 'dts/**') }}-${{ github.run_id }}
           restore-keys: |
+            ipq50xx-${{ inputs.device }}-ccache-${{ hashFiles('feeds.conf', 'configs/**', 'dts/**') }}-
             ipq50xx-${{ inputs.device }}-ccache-${{ inputs.base_ref }}-
+            ipq50xx-${{ inputs.device }}-ccache-
           path: |
             openwrt/.ccache
+
+      - name: Restore staging cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25  # v5
+        with:
+          key: ipq50xx-${{ inputs.device }}-staging-${{ hashFiles('feeds.conf', 'configs/**', 'dts/**') }}-${{ github.run_id }}
+          restore-keys: |
+            ipq50xx-${{ inputs.device }}-staging-${{ hashFiles('feeds.conf', 'configs/**', 'dts/**') }}-
+            ipq50xx-${{ inputs.device }}-staging-${{ inputs.base_ref }}-
+            ipq50xx-${{ inputs.device }}-staging-
+          path: |
             openwrt/staging_dir
 
-      # Refresh the restored cache (AX1800-style): restored stamp files
-      # carry old mtimes while freshly checked-out sources are new, which
-      # would make make rebuild everything. Touching the stamps (except
-      # under target/) tells make the cached outputs are current.
+      - name: Restore dl cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25  # v5
+        with:
+          key: ipq50xx-${{ inputs.device }}-dl-${{ hashFiles('feeds.conf', 'configs/**', 'dts/**') }}-${{ github.run_id }}
+          restore-keys: |
+            ipq50xx-${{ inputs.device }}-dl-${{ hashFiles('feeds.conf', 'configs/**', 'dts/**') }}-
+            ipq50xx-${{ inputs.device }}-dl-${{ inputs.base_ref }}-
+            ipq50xx-${{ inputs.device }}-dl-
+          path: |
+            openwrt/dl
+
+      # Refresh the restored cache (AX1800-style, upstream-ordered):
+      # restored stamp files carry old mtimes while freshly checked-out
+      # sources are new, which would make make rebuild everything.
+      # Host-tool stamps first, then the rest (except under target/):
+      # aggregate stamps must come last or make rebuilds the toolchain
+      # needlessly.
       - name: Refresh build cache
         run: |
           set -Eeuo pipefail
           trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           if [ -d openwrt/staging_dir ]; then
-            find openwrt/staging_dir -type d -name "stamp" -not -path "*target*" | while read -r dir; do
+            find openwrt/staging_dir -type d -name "stamp" -path "*host*" | while read -r dir; do
+              find "$dir" -type f -exec touch {} +
+            done
+            find openwrt/staging_dir -type d -name "stamp" -not -path "*target*" -not -path "*host*" | while read -r dir; do
               find "$dir" -type f -exec touch {} +
             done
             echo "=== CACHE REFRESH OK ==="
@@ -246,11 +334,11 @@ jobs:
           # log instead of dying inside a bulk update.
           for feed in packages luci routing telephony video nss; do
             echo "=== FEED UPDATE: $feed ==="
-            ./scripts/feeds update "$feed" || { echo "FEED FAILED at update: $feed"; exit 1; }
+            ./scripts/feeds update "$feed" || { echo "::error::FEED FAILED at update: $feed"; exit 1; }
             echo "=== FEED UPDATE OK: $feed ==="
           done
           echo "=== FEED INSTALL: all ==="
-          ./scripts/feeds install -a || { echo "FEED FAILED at install (failing package above)"; exit 1; }
+          ./scripts/feeds install -a || { echo "::error::FEED FAILED at install (failing package above)"; exit 1; }
           # Per-feed identity in the log: name + exact commit, so the log
           # alone shows every feed's state for this run.
           for feed in packages luci routing telephony video nss; do
@@ -266,7 +354,7 @@ jobs:
             fi
           done)"
           if [ -z "$FEEDS_VERSION" ]; then
-            echo "No feed revisions found after updating feeds" >&2
+            echo "::error::No feed revisions found after updating feeds" >&2
             exit 1
           fi
           echo "FEEDS_VERSION=$FEEDS_VERSION" >> "$GITHUB_ENV"
@@ -287,13 +375,21 @@ jobs:
           # symbols get dropped by defconfig (this failed run #2).
           rm -rf package/luci-theme-argon package/luci-app-argon-config
           echo "=== EXTRA PACKAGE: luci-theme-argon ==="
-          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon || { echo "EXTRA PACKAGE FAILED: luci-theme-argon (clone)"; exit 1; }
+          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon || { echo "::error::EXTRA PACKAGE FAILED: luci-theme-argon (clone)"; exit 1; }
           git -C package/luci-theme-argon log --oneline -1
           echo "ARGON_THEME_COMMIT=$(git -C package/luci-theme-argon rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "=== EXTRA PACKAGE: luci-app-argon-config ==="
-          git clone --depth 1 https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config || { echo "EXTRA PACKAGE FAILED: luci-app-argon-config (clone)"; exit 1; }
+          git clone --depth 1 https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config || { echo "::error::EXTRA PACKAGE FAILED: luci-app-argon-config (clone)"; exit 1; }
           git -C package/luci-app-argon-config log --oneline -1
           echo "ARGON_CONFIG_COMMIT=$(git -C package/luci-app-argon-config rev-parse HEAD)" >> "$GITHUB_ENV"
+          # Third-party-sources ledger (upstream-style): a file in
+          # artifacts recording every extra source's repo + commit.
+          # Appended (>>), never overwritten: the M81 board-data line
+          # from the devices step must survive.
+          {
+            echo "luci-theme-argon master $(git -C package/luci-theme-argon rev-parse HEAD)"
+            echo "luci-app-argon-config master $(git -C package/luci-app-argon-config rev-parse HEAD)"
+          } >> ../third-party-sources.txt
           echo "=== EXTRA PACKAGES OK ==="
 
       - name: Apply device config
@@ -361,16 +457,16 @@ jobs:
             '^CONFIG_PACKAGE_adblock=y$' \
             '^CONFIG_PACKAGE_dnsmasq-full=y$' \
             ; do
-            grep -q "$pat" .config || { echo "MISSING: $pat"; fail=1; }
+            grep -q "$pat" .config || { echo "::error::MISSING: $pat"; fail=1; }
           done
           # O3 flags: confirm the custom CPU flags survived defconfig.
-          grep -q 'mcpu=cortex-a53' .config || { echo "MISSING: O3 mcpu flag"; fail=1; }
+          grep -q 'mcpu=cortex-a53' .config || { echo "::error::MISSING: O3 mcpu flag"; fail=1; }
           # NSS bridge-mgr is ipq807x/ipq60xx-only (see config comment),
           # so it is deliberately NOT checked here.
           if [ "${{ inputs.firmware }}" = "12.5" ]; then
-            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_5=y$' .config || { echo "MISSING: NSS_FIRMWARE_VERSION_12_5"; fail=1; }
+            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_5=y$' .config || { echo "::error::MISSING: NSS_FIRMWARE_VERSION_12_5"; fail=1; }
           else
-            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_2=y$' .config || { echo "MISSING: NSS_FIRMWARE_VERSION_12_2"; fail=1; }
+            grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_2=y$' .config || { echo "::error::MISSING: NSS_FIRMWARE_VERSION_12_2"; fail=1; }
           fi
           # Fragment survival (fanha99 pattern): every positive selection
           # in the applied config file must survive defconfig, else fail
@@ -382,7 +478,7 @@ jobs:
               # branch above and covered by the dedicated version check,
               # so they are exempt here.
               *NSS_FIRMWARE_VERSION_*) ;;
-              CONFIG_*=*) grep -qF "$line" .config || { echo "FRAGMENT DROPPED: $line"; fail=1; } ;;
+              CONFIG_*=*) grep -qF "$line" .config || { echo "::error::FRAGMENT DROPPED: $line"; fail=1; } ;;
             esac
           done < "../configs/${CONFIG_FILE}"
           # Wireless gate status: print the exact symbols so that a drop
@@ -395,6 +491,14 @@ jobs:
           done
           [ "$fail" = 0 ] || exit 1
           echo "=== DEFCONFIG GUARD OK ==="
+          # DEVICE_PACKAGES check (kuncy7-style, WARN MODE): read the
+          # targetinfo generated by defconfig and warn for every device
+          # package of the enabled profile that is not selected in
+          # .config. Warn-only until validated against a real build's
+          # targetinfo: a wrong parser must never fail a good build
+          # (the #11 guard-bug lesson). It graduates to failing after
+          # one clean run confirms the parser.
+          python3 ../scripts/check-device-packages.py .config tmp/info/.targetinfo-qualcommax "${{ matrix.device }}" || echo "(device-package check unavailable)"
 
       - name: Install files overlay
         run: |
@@ -420,17 +524,37 @@ jobs:
           echo "overlay file count: $(find files -type f 2>/dev/null | wc -l)"
 
       - name: Download sources
+        timeout-minutes: 90
+        env:
+          GIT_HTTP_LOW_SPEED_LIMIT: 1000
+          GIT_HTTP_LOW_SPEED_TIME: 60
         run: |
           set -Eeuo pipefail
           trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           echo "=== DOWNLOAD SOURCES ==="
-          make download -j"$(nproc)" || { echo "DOWNLOAD FAILED (failing package above)"; exit 1; }
-          # Drop empty downloads so a truncated file cannot poison the
-          # build, but PRINT every removed file: silently deleting them
-          # hides evidence of a failed download.
-          echo "--- removing truncated downloads (<1024c) ---"
-          find dl -size -1024c -print -exec rm -f {} \;
+          # Retry the download (kuncy7/yingjiedev-style): 3 attempts,
+          # each capped by timeout, low-speed abort env, truncated
+          # files removed AND printed between attempts so a bad
+          # download can neither poison the build nor hide.
+          attempt=1
+          until timeout --kill-after=60 20m make download -j"$(nproc)"; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::DOWNLOAD FAILED after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::download attempt $attempt failed, retrying..."
+            if [ -d dl ]; then
+              echo "--- removing truncated downloads (<1024c) ---"
+              find dl -size -1024c -print -exec rm -f {} \;
+            fi
+            sleep "$((attempt * 5))"
+            attempt=$((attempt + 1))
+          done
+          if [ -d dl ]; then
+            echo "--- removing truncated downloads (<1024c) ---"
+            find dl -size -1024c -print -exec rm -f {} \;
+          fi
           echo "=== DOWNLOAD OK ==="
 
       - name: Build firmware
@@ -443,10 +567,13 @@ jobs:
             echo "=== BUILD: parallel make FAILED, retrying serial to pinpoint the failing package ==="
             make -j1 || {
               echo "=== BUILD: serial make FAILED, retrying serial verbose (V=s) ==="
-              make -j1 V=s || { echo "BUILD FAILED in serial verbose run (failing package above)"; exit 1; }
+              make -j1 V=s || { echo "::error::BUILD FAILED in serial verbose run (failing package above)"; exit 1; }
             }
           }
           echo "=== BUILD OK: $(date) ==="
+          # ccache stats (kuncy7-style): hit rate for the next run's
+          # cache diagnosis. Never fails the build.
+          staging_dir/host/bin/ccache -s 2>/dev/null || ccache -s 2>/dev/null || echo "(ccache stats unavailable)"
 
       - name: Verify wireless stack built
         run: |
@@ -486,12 +613,32 @@ jobs:
               ls bin/targets/qualcommax/ipq50xx/ | head -40
               echo "--- packages dir ---"
               ls bin/targets/qualcommax/ipq50xx/packages/ 2>/dev/null | grep -i ath11k || echo "(no ath11k ipk in packages dir)"
-              echo "MISSING: no kmod-ath11k ipk built and ath11k not built-in"
+              echo "::error::MISSING: no kmod-ath11k ipk built and ath11k not built-in"
               fail=1
             fi
           }
           [ "$fail" = 0 ] || exit 1
           echo "=== VERIFY OK ==="
+
+      # Post-build image verification (yingjiedev-style, adapted): parse
+      # factory.ubi and verify its structure against the merged layout
+      # (PEB alignment, size limit, kernel+rootfs volumes present with
+      # data) before it ever reaches artifacts or a release. This moves
+      # pre-flash binary analysis into CI. The verifier was validated
+      # locally against our #8/#9 images (pass) and corrupted copies
+      # (fail); it deliberately does not gate on header CRCs (observed
+      # to mismatch on known-good images) or exact LEB counts (kernel
+      # size legitimately varies).
+      - name: Verify factory image structure
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd openwrt
+          FACTORY="$(ls bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*factory.ubi 2>/dev/null | head -1 || true)"
+          test -n "$FACTORY" || { echo "::error::FACTORY IMAGE MISSING"; exit 1; }
+          echo "=== VERIFY FACTORY IMAGE: $FACTORY ==="
+          python3 ../scripts/verify-factory-ubi.py "$FACTORY"
+          echo "=== FACTORY IMAGE OK ==="
 
       - name: Stage artifacts
         run: |
@@ -504,6 +651,11 @@ jobs:
           cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*factory.ubi ../artifacts/ 2>/dev/null || true
           cp bin/targets/qualcommax/ipq50xx/config.buildinfo ../artifacts/ 2>/dev/null || true
           cp bin/targets/qualcommax/ipq50xx/feeds.buildinfo ../artifacts/ 2>/dev/null || true
+          # Stage the full resolved .config (upstream-style): the
+          # buildinfo files show deltas only; the resolved config is
+          # what actually built, and it is the diagnostic record.
+          cp .config ../artifacts/"${{ matrix.device }}.config" 2>/dev/null || echo "(no .config to stage)"
+          cp ../third-party-sources.txt ../artifacts/ 2>/dev/null || echo "(no third-party-sources ledger)"
           # The sysupgrade image and the factory image are mandatory;
           # fail loudly without them so a release is never incomplete.
           ls ../artifacts/*sysupgrade.bin
@@ -512,11 +664,29 @@ jobs:
           ls -l ../artifacts
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5
         with:
           name: ipq50xx-${{ matrix.device }}-nss-fw${{ inputs.firmware }}
           path: artifacts/
           if-no-files-found: error
+          # Images are already compressed; recompressing them wastes
+          # time (upstream-style).
+          compression-level: 0
+
+      # One-glance run review (kuncy7-style): images + feed versions in
+      # the run summary, not buried in the log.
+      - name: Build summary
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          {
+            echo "### IPQ50xx NSS build"
+            echo ""
+            echo "- Device: ${{ matrix.device }}, NSS firmware: ${{ inputs.firmware }}"
+            echo "- Images:"
+            ls -l artifacts/ | tail -n +2 | awk '{print "  - " $9 " (" $5 " bytes)"}'
+            echo "- Feed versions: ${{ env.FEEDS_VERSION }}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set release tag
         run: |
@@ -538,7 +708,7 @@ jobs:
 
       - name: Publish release
         if: success()
-        uses: ncipollo/release-action@v1
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd  # v1
         with:
           tag: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_NAME }}
@@ -564,23 +734,54 @@ jobs:
 
             Flash only the listed models. Do not flash across models, board revisions (M79/M81) or A/B versions; a wrong image can brick the device.
 
+      # Post-upload digest verification (yingjiedev-style): download
+      # the just-published assets and compare against the staged
+      # sha256sums.txt. A mismatch fails the job (alerting). It cannot
+      # unpublish, so this is detection, not prevention — draft-first
+      # publishing (kmod-repo feature) would close that gap.
+      - name: Verify release digests
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          attempt=1
+          until gh release download "$RELEASE_TAG" --dir /tmp/release-verify --pattern '*' 2>/dev/null; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::RELEASE DOWNLOAD FAILED after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::release download attempt $attempt failed, retrying..."
+            sleep "$((attempt * 5))"
+            attempt=$((attempt + 1))
+          done
+          cd /tmp/release-verify
+          sha256sum -c sha256sums.txt || { echo "::error::RELEASE DIGEST MISMATCH"; exit 1; }
+          echo "=== RELEASE DIGESTS OK ==="
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # Cleanup runs only when the build succeeded, and never fails the
       # job: the release above is already published by then, and the user
       # only needs the release to stay normal. Cache save happens in the
-      # cache step's post-action, after these steps, so the fresh cache
+      # cache steps' post-actions, after these steps, so the fresh cache
       # survives while older entries are deleted.
+      # Keep-newest cleanup (upstream-style, adapted to a single job):
+      # per cache type, keep the newest entry (the previous run's cache,
+      # a useful fallback) and delete the rest. Runs are serialized by
+      # the concurrency group, so no live cache can be clobbered here.
       - name: Delete old caches
         continue-on-error: true
         run: |
-          gh cache list --key "ipq50xx-${{ inputs.device }}-ccache-${{ inputs.base_ref }}-" --json key --jq '.[] | .key' | while read -r key; do
-            gh cache delete "$key"
+          for prefix in "ipq50xx-${{ inputs.device }}-ccache-" "ipq50xx-${{ inputs.device }}-staging-" "ipq50xx-${{ inputs.device }}-dl-"; do
+            gh cache list --key "$prefix" --json key,createdAt --jq 'sort_by(.createdAt) | reverse | .[1:] | .[].key' 2>/dev/null | while read -r key; do
+              [ -n "$key" ] && gh cache delete "$key" || true
+            done
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete old workflow runs
         continue-on-error: true
-        uses: Mattraks/delete-workflow-runs@main
+        uses: Mattraks/delete-workflow-runs@0cf693bc9909e5e867ee8f27b813224ba862939c  # main
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           retain_days: 2
