@@ -68,6 +68,8 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           sudo apt-get update
           sudo apt-get install -y build-essential ccache clang flex bison g++ gawk \
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
@@ -76,6 +78,8 @@ jobs:
 
       - name: Clone base tree at pinned commit
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           git init openwrt
           cd openwrt
           git remote add origin "$BASE_REPO"
@@ -87,6 +91,8 @@ jobs:
 
       - name: Install custom devices
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           # Devices the base tree does not have yet (e.g. M81) live in
           # this repo's dts/: a .dts file plus a .mk.inc device block.
@@ -98,6 +104,9 @@ jobs:
             cp ../dts/*.dts target/linux/qualcommax/dts/
             for inc in ../dts/*.mk.inc; do
               cat "$inc" >> target/linux/qualcommax/image/ipq50xx.mk
+            done
+            for f in ../dts/*.dts; do
+              test -f "target/linux/qualcommax/dts/$(basename "$f")" || { echo "DTS COPY FAILED: $f"; exit 1; }
             done
           fi
           echo "=== CUSTOM DEVICES INJECTED ==="
@@ -127,6 +136,8 @@ jobs:
 
       - name: Patch cr8806 NAND ECC to 4-bit (trigsoft chain)
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           # Build #6 diagnosis (2026-11-03): the kuncy7 base DTS forces
           # 8-bit NAND ECC, which is correct for a stock-U-Boot chain
@@ -171,6 +182,8 @@ jobs:
 
       - name: Pin feeds to proven commits
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           # Reproducibility: the base tree's feeds.conf.default tracks
           # branches, and packages + luci moved between run #1 and run
@@ -198,6 +211,8 @@ jobs:
 
       - name: Update and install feeds
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           # feeds.conf.default of the base tree already names the nss feed
           # (kuncy7/nss-packages, branch ipq50xx-rebase).
@@ -225,6 +240,8 @@ jobs:
 
       - name: Fetch extra packages
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           # Argon theme + config are not in the base feeds; track the
           # latest upstream master like the IPQ60xx project does.
@@ -244,6 +261,8 @@ jobs:
 
       - name: Apply device config
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           # Map device profile -> config file in this repo.
           # Add one line per new device here.
@@ -342,6 +361,8 @@ jobs:
 
       - name: Install files overlay
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           # Anything in this repo's files/ is baked into the image rootfs.
           # uci-defaults scripts must be executable in the image, and the
@@ -363,6 +384,8 @@ jobs:
 
       - name: Download sources
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           echo "=== DOWNLOAD SOURCES ==="
           make download -j"$(nproc)" || { echo "DOWNLOAD FAILED (failing package above)"; exit 1; }
@@ -375,16 +398,23 @@ jobs:
 
       - name: Build firmware
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           echo "=== BUILD START: $(date) (parallel) ==="
           make -j"$(nproc)" || {
-            echo "=== BUILD: parallel make FAILED, retrying serial (V=s) to pinpoint the failing package ==="
-            make -j1 V=s || { echo "BUILD FAILED in serial run (failing package above)"; exit 1; }
+            echo "=== BUILD: parallel make FAILED, retrying serial to pinpoint the failing package ==="
+            make -j1 || {
+              echo "=== BUILD: serial make FAILED, retrying serial verbose (V=s) ==="
+              make -j1 V=s || { echo "BUILD FAILED in serial verbose run (failing package above)"; exit 1; }
+            }
           }
           echo "=== BUILD OK: $(date) ==="
 
       - name: Verify wireless stack built
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
           # Fail fast with the exact missing piece instead of publishing
           # a WiFi-less release that only shows up on the router (Build #9).
@@ -428,6 +458,8 @@ jobs:
 
       - name: Stage artifacts
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           mkdir -p artifacts
           cd openwrt
           cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*sysupgrade.bin ../artifacts/ 2>/dev/null || true
@@ -451,6 +483,8 @@ jobs:
 
       - name: Set release tag
         run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           DATE="$(date +'%Y.%m.%d')"
           echo "RELEASE_TAG=${{ matrix.device }}-${DATE}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
           echo "RELEASE_NAME=${{ matrix.device }} NSS FW ${{ inputs.firmware }} - ${DATE} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
