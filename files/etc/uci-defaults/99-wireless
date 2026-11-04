@@ -1,0 +1,33 @@
+#!/bin/sh
+# First-boot wireless defaults (batch #15, 2026-11-04).
+# Radios on out of the box, split SSIDs, 802.11k/v on by default,
+# 802.11r/s left off (manually controllable in LuCI).
+# No set -e: one failed step must not abort the rest.
+# uci-defaults scripts run once on first boot and are removed afterwards.
+
+# Generate the default wireless config if it does not exist yet
+# (uci-defaults run before the wireless config is generated on some boots).
+[ -f /etc/config/wireless ] || wifi config
+
+# Radios on (OpenWrt disables new radios by default).
+uci set wireless.radio0.disabled='0'
+uci set wireless.radio1.disabled='0'
+
+# Split SSIDs: 2.4G = OpenWrt, 5G = OpenWrt_5G.
+uci set wireless.default_radio0.ssid='OpenWrt'
+uci set wireless.default_radio1.ssid='OpenWrt_5G'
+
+# 802.11k/v on by default (full wpad provides WNM for v; k's effect is
+# verified on-device, as the hostapd configs do not list RRM explicitly).
+uci set wireless.default_radio0.ieee80211k='1'
+uci set wireless.default_radio0.ieee80211v='1'
+uci set wireless.default_radio1.ieee80211k='1'
+uci set wireless.default_radio1.ieee80211v='1'
+
+# 802.11r/s stay off: no ieee80211r / mesh lines are written, so the
+# defaults hold. Enable manually in LuCI if wanted.
+# Encryption stays none (open) until the WiFi key is set in LuCI.
+
+uci commit wireless
+wifi reload
+exit 0
