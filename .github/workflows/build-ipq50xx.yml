@@ -289,6 +289,19 @@ jobs:
           else
             grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_2=y$' .config || { echo "MISSING: NSS_FIRMWARE_VERSION_12_2"; fail=1; }
           fi
+          # Fragment survival (fanha99 pattern): every positive selection
+          # in the applied config file must survive defconfig, else fail
+          # here with the exact line. This catches ANY silent drop, not
+          # just the wireless symbols listed above.
+          while IFS= read -r line; do
+            case "$line" in
+              # The firmware-version lines are rewritten by the 12.2
+              # branch above and covered by the dedicated version check,
+              # so they are exempt here.
+              *NSS_FIRMWARE_VERSION_*) ;;
+              CONFIG_*=*) grep -qF "$line" .config || { echo "FRAGMENT DROPPED: $line"; fail=1; } ;;
+            esac
+          done < "../configs/${CONFIG_FILE}"
           # Wireless gate status: print the exact symbols so that a drop
           # reports its gate in the log at this step instead of needing
           # guesswork afterwards (Build #9 shipped WiFi-less because the
@@ -336,6 +349,9 @@ jobs:
           cd openwrt
           # Fail fast with the exact missing piece instead of publishing
           # a WiFi-less release that only shows up on the router (Build #9).
+          # NOTE: check the full .config here, NOT config.buildinfo: the
+          # latter is a diffconfig (only non-default symbols), so default
+          # packages like kmod-ath11k never appear in it even when built.
           fail=0
           for pat in \
             '^CONFIG_PACKAGE_kmod-ath11k=y$' \
@@ -345,7 +361,7 @@ jobs:
             '^CONFIG_PACKAGE_wpad-basic-mbedtls=y$' \
             '^CONFIG_PACKAGE_iw=y$' \
             ; do
-            grep -q "$pat" bin/targets/qualcommax/ipq50xx/config.buildinfo || { echo "BUILT CONFIG MISSING: $pat"; fail=1; }
+            grep -q "$pat" .config || { echo "BUILT CONFIG MISSING: $pat"; fail=1; }
           done
           find bin/targets/qualcommax/ipq50xx -name 'kmod-ath11k_*.ipk' | grep -q . || { echo "MISSING: no kmod-ath11k ipk built"; fail=1; }
           [ "$fail" = 0 ] || exit 1
