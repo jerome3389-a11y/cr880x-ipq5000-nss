@@ -4,12 +4,22 @@
 
 ## 基础版本
 
-- OpenWrt SNAPSHOT，底包 [kuncy7/openwrt-nss-edma](https://github.com/kuncy7/openwrt-nss-edma)，分支 `c3po-tag-8021q`，钉住提交 `13e8bc914709c4794b3ec7b0421d2038386e697e`
-- 内核 **6.18**（6.18.55）
-- NSS 固件 **12.5**（12.5-210-MP；编译时可选 12.2，驱动必须与固件版本对应）
-- 目标 `qualcommax/ipq50xx`，DSA 拓扑
-- Feeds 钉住：packages `24f7c066`、luci `ae19cdfd`、routing `ea8633da`、telephony `9bcb6d71`、video `4582d70f`、nss `4fa071ab`
-- LuCI（Argon 为默认主题，Bootstrap 也在镜像里）
+| 项目 | 版本 / 钉住值 |
+|---|---|
+| OpenWrt 底包 | [kuncy7/openwrt-nss-edma](https://github.com/kuncy7/openwrt-nss-edma)，分支 `c3po-tag-8021q`，提交 `13e8bc914709c4794b3ec7b0421d2038386e697e` |
+| 内核 | 6.18（6.18.55） |
+| NSS 固件 | 12.5（12.5-210-MP；编译时可选 12.2，驱动必须与固件版本对应） |
+| 目标 | `qualcommax/ipq50xx`，DSA 拓扑 |
+| LuCI | Argon 为默认主题，Bootstrap 也在镜像里 |
+
+| Feed | 钉住提交 |
+|---|---|
+| packages | `24f7c066` |
+| luci | `ae19cdfd` |
+| routing | `ea8633da` |
+| telephony | `9bcb6d71` |
+| video | `4582d70f` |
+| nss | `4fa071ab` |
 
 ## NSS
 
@@ -17,22 +27,47 @@
 - NSS 内存档：LOW（默认）
 - 已在 CR8808（A版 M79）上机验证：NSS 核心启动、有线平面转发零丢包、ECM 已加速 TCP 流、WiFi 测速时 CPU 几乎不变（双频 WiFi 走 NSS 路径）
 - 内核 flow offloading（flowtable）必须保持关闭：NSS ECM 是 offload 路径，两者不能同时开
-- SQM：sqm-scripts-nss（nssfq_codel）+ luci-app-sqm + ifb，默认关闭
-- 交换机桥 IGMP snooping 默认关闭
 - bridge-mgr 不在 ipq50xx 上（仅 ipq807x/ipq60xx 的 PPE 栈有），未包含
 
 ## 固件特性
 
-- 无线：IPQ5018（2.4G）+ QCN6122（5G），ath11k，双频 WiFi 6（802.11ax）；双频广播已在 CR8808（A版 M79）上机验证
-- 出厂默认：双频 radio 全开、SSID 分开（2.4G `OpenWrt` / 5G `OpenWrt_5G`）、802.11k + 802.11v 默认开、802.11r + 802.11s 默认关（LuCI 里可手动开）；完整版 wpad-mbedtls（与 basic 同为 mbedtls 后端，另含 WNM 与 MESH）；WPA3-SAE 可用
-- 出厂默认凭证（公开默认值，刷后可改）：WiFi SSID OpenWrt（2.4G）/ OpenWrt_5G（5G），密码 12345678（WPA2）；root 密码 password（LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `passwd`）
-- DNS：dnsmasq-full + adblock（默认开启，规则源 anti_ad / adguard / yoyo / disconnect，列表首次开机联网后下载）；LAN 53 端口 DNS 劫持到路由器本机；dnsmasq 缓存 1000；无 SmartDNS
-- 网络：DSA（lan / wan）、BBR（首次开机设为默认拥塞算法）、zram（lz4，LZO 备用）、内核 flow offloading 关、IGMP snooping 关、SQM 关
+| 特性 | 支持 | 默认状态 | 实机测试 |
+|---|---|---|---|
+| NSS 加速 | 支持 | — | 已测试 |
+| 双频 WiFi（出厂开启） | 支持 | 默认启用 | 已测试 |
+| 802.11k（RRM） | 支持 | 默认启用 | 已测试 |
+| 802.11v（WNM） | 支持 | 默认启用 | 已测试 |
+| 802.11r（FT） | 支持 | 默认关闭 | — |
+| 802.11s（Mesh） | 支持 | 默认关闭 | — |
+| SQM（nssfq_codel + luci-app-sqm） | 支持 | 默认关闭 | — |
+| Adblock | 支持 | 默认启用 | — |
+| UPnP | 支持 | 默认关闭 | — |
+| 内核流量分载（flow offloading） | 支持 | 默认关闭 | — |
+| IGMP snooping | 支持 | 默认关闭 | — |
+| zram-swap | 支持 | 默认启用 | 已测试 |
+
+- 802.11v 靠 `bss_transition` + `wnm_sleep_mode` 开启；本底包的 ap.uc 不读 `ieee80211v`，不要用它（否则 v 不生效）
+- 802.11s：完整版 wpad 带 Mesh 能力，LuCI 里可选 Mesh 模式，但默认不配 Mesh 接口、未上机测过
+- 无线硬件：IPQ5018（2.4G）+ QCN6122（5G），ath11k，双频 WiFi 6（802.11ax）
+- 完整版 wpad-mbedtls（与 basic 同为 mbedtls 后端，另含 WNM 与 MESH）；WPA3-SAE 可用
+- DNS：dnsmasq-full + adblock（规则源 anti_ad / adguard / yoyo / disconnect，列表首次开机联网后下载）；LAN 53 端口 DNS 劫持到路由器本机；dnsmasq 缓存 1000；无 SmartDNS
+- 网络：DSA（lan / wan）、BBR（首次开机设为默认拥塞算法）
 - 工具：htop、zoneinfo-asia、luci-app-upnp、tcpdump-mini、iw（无线调试）、ca-bundle
 - 不包含：SmartDNS、ttyd、SFTP/SCP、bridge-mgr、Fullcone、cpufreq、arpbind（feed 里没有或已确认不适用；要加功能请重编译，见下）
 - 设备适配：merged 分区 fixed-partitions（单 rootfs 116.5 MiB）、trigsoft 链 4-bit NAND ECC、ART caldata（`0:ART`，脚本按大小写精确匹配）
 - 编译优化：`-O3` + Cortex-A53 crypto 指令集、LTO 开启
 - 内存：256 MiB 物理内存，Linux 可见约 170 MiB；大规则源（adblock XL/XXL/VAR）默认关闭，别贪大
+
+### 出厂默认凭证（公开默认值，刷后可改）
+
+| 项目 | 默认值 |
+|---|---|
+| WiFi 2.4G SSID | OpenWrt |
+| WiFi 5G SSID | OpenWrt_5G |
+| WiFi 密码 | 12345678（WPA2） |
+| Root 密码 | password |
+
+LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `passwd`。
 
 ## 支持的型号
 
@@ -55,7 +90,13 @@
 ## 编译
 
 - `.github/workflows/build-ipq50xx.yml`（瘦调用方）+ `build-ipq50xx-shared.yml`（共用构建），手动触发（`workflow_dispatch`）
-- 输入：`device`（`xiaomi_cr8806` / `xiaomi_cr8808`）、`firmware`（`12.5` 默认 / `12.2`）、`base_ref`（底包提交，默认钉住值）
+
+| 输入 | 可选值 | 默认 |
+|---|---|---|
+| `device` | `xiaomi_cr8806` / `xiaomi_cr8808` | —（必填） |
+| `firmware` | `12.5` / `12.2` | `12.5` |
+| `base_ref` | 底包提交 | `13e8bc914709c4794b3ec7b0421d2038386e697e` |
+
 - 每次成功编译发一个独立 Release（tag `设备-日期-运行号-尝试号`）：先发 draft，验远端摘要通过后再发布，坏版永不公开；release 里只有固件（`factory.ubi`）；buildinfo、完整 `.config`、校验文件与第三方来源清单只作 workflow 诊断产物，不进 release
 - 缓存：ccache 按工具链 + 编译器键入，staging / dl 按配置哈希键入；旧缓存与旧工作流自动清理（工作流保留 2 天，Release 不受影响）
 - 要加功能请重编译：本项目不提供自建 kmod 仓库；kmod 包带内核 vermagic，只能装在同一编译的内核上
