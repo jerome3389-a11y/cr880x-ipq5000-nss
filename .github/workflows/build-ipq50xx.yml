@@ -100,6 +100,8 @@ jobs:
               cat "$inc" >> target/linux/qualcommax/image/ipq50xx.mk
             done
           fi
+          echo "=== CUSTOM DEVICES INJECTED ==="
+          ls ../dts/ 2>/dev/null || echo "(no repo dts files)"
           # M81 board data: the M81 image has no ipq-wifi package, so
           # fetch its board-2.bin files at build time from hzyitc's
           # redmi_ax3000 board files (pinned commit + sha256 check, so
@@ -175,6 +177,11 @@ jobs:
           # #5. Copy the repo's pinned feeds.conf (run #5's exact feed
           # commits) so a rebuild pulls identical feed code.
           cp ../feeds.conf feeds.conf
+          # Log precision: print exactly which feed commits are pinned,
+          # so the log alone shows the feed state for this run.
+          echo "=== PINNED FEEDS ==="
+          grep -v '^#' feeds.conf | grep -v '^$'
+          echo "=== PIN FEEDS OK ==="
 
       - name: Restore ccache
         uses: actions/cache@v5
@@ -197,9 +204,24 @@ jobs:
           # TODO: pin the nss feed by commit. After a known-good build, copy
           # the nss line from feeds.buildinfo into a feeds.conf, commit it in
           # this repo, and copy it over feeds.conf.default here.
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          # Log precision (IPQ6000-style): update one feed at a time, each
+          # with its own marker, so a failure names the exact feed in the
+          # log instead of dying inside a bulk update.
+          for feed in packages luci routing telephony video nss; do
+            echo "=== FEED UPDATE: $feed ==="
+            ./scripts/feeds update "$feed" || { echo "FEED FAILED at update: $feed"; exit 1; }
+            echo "=== FEED UPDATE OK: $feed ==="
+          done
+          echo "=== FEED INSTALL: all ==="
+          ./scripts/feeds install -a || { echo "FEED FAILED at install (failing package above)"; exit 1; }
+          # Per-feed identity in the log: name + exact commit, so the log
+          # alone shows every feed's state for this run.
+          for feed in packages luci routing telephony video nss; do
+            echo "--- feed: $feed ---"
+            git -C "feeds/$feed" log --oneline -1 2>/dev/null || echo "(feed dir not a git checkout: $feed)"
+          done
           ./scripts/feeds list -r nss | grep -q qca-nss-drv && echo "nss feed OK"
+          echo "=== FEEDS OK ==="
 
       - name: Fetch extra packages
         run: |
@@ -212,8 +234,13 @@ jobs:
           # clone into feeds/ warns "No feed for package" and the
           # symbols get dropped by defconfig (this failed run #2).
           rm -rf package/luci-theme-argon package/luci-app-argon-config
-          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
-          git clone --depth 1 https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config
+          echo "=== EXTRA PACKAGE: luci-theme-argon ==="
+          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon || { echo "EXTRA PACKAGE FAILED: luci-theme-argon (clone)"; exit 1; }
+          git -C package/luci-theme-argon log --oneline -1
+          echo "=== EXTRA PACKAGE: luci-app-argon-config ==="
+          git clone --depth 1 https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config || { echo "EXTRA PACKAGE FAILED: luci-app-argon-config (clone)"; exit 1; }
+          git -C package/luci-app-argon-config log --oneline -1
+          echo "=== EXTRA PACKAGES OK ==="
 
       - name: Apply device config
         run: |
@@ -311,6 +338,7 @@ jobs:
             grep -E "^#? ?${s}(=| is not set)" .config || echo "$s: absent"
           done
           [ "$fail" = 0 ] || exit 1
+          echo "=== DEFCONFIG GUARD OK ==="
 
       - name: Install files overlay
         run: |
@@ -329,20 +357,31 @@ jobs:
           if [ -d "../files-${{ matrix.device }}" ]; then
             cp -r "../files-${{ matrix.device }}/." files/
           fi
+          echo "=== FILES OVERLAY ==="
+          find files -type f 2>/dev/null | head -50
+          echo "overlay file count: $(find files -type f 2>/dev/null | wc -l)"
 
       - name: Download sources
         run: |
           cd openwrt
-          make download -j"$(nproc)"
-          # Drop empty downloads so a truncated file cannot poison the build.
-          find dl -size -1024c -exec rm -f {} \;
+          echo "=== DOWNLOAD SOURCES ==="
+          make download -j"$(nproc)" || { echo "DOWNLOAD FAILED (failing package above)"; exit 1; }
+          # Drop empty downloads so a truncated file cannot poison the
+          # build, but PRINT every removed file: silently deleting them
+          # hides evidence of a failed download.
+          echo "--- removing truncated downloads (<1024c) ---"
+          find dl -size -1024c -print -exec rm -f {} \;
+          echo "=== DOWNLOAD OK ==="
 
       - name: Build firmware
         run: |
           cd openwrt
-          echo "Build started: $(date)"
-          make -j"$(nproc)" || make -j1 V=s
-          echo "Build finished: $(date)"
+          echo "=== BUILD START: $(date) (parallel) ==="
+          make -j"$(nproc)" || {
+            echo "=== BUILD: parallel make FAILED, retrying serial (V=s) to pinpoint the failing package ==="
+            make -j1 V=s || { echo "BUILD FAILED in serial run (failing package above)"; exit 1; }
+          }
+          echo "=== BUILD OK: $(date) ==="
 
       - name: Verify wireless stack built
         run: |
@@ -385,6 +424,7 @@ jobs:
             fi
           }
           [ "$fail" = 0 ] || exit 1
+          echo "=== VERIFY OK ==="
 
       - name: Stage artifacts
         run: |
@@ -471,3 +511,31 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           retain_days: 2
           keep_minimum_runs: 0
+
+      # Log-only failure diagnosis (IPQ6000-style): when any step fails,
+      # this step prints the exact build state into the log, so the log
+      # alone is enough to name the failure point. It never fails itself
+      # (set +e), and it runs even though earlier steps failed.
+      - name: Diagnose failure
+        if: failure()
+        run: |
+          set +e
+          echo "===== FAILURE DIAGNOSTICS ====="
+          echo "--- scaffold HEAD ---"
+          git log --oneline -1 2>/dev/null || echo "(scaffold git unavailable)"
+          if [ -d openwrt ]; then
+            cd openwrt
+            echo "--- base HEAD ---"
+            git log --oneline -1 2>/dev/null || echo "(base git unavailable)"
+            echo "--- wireless/NSS config ---"
+            grep -E '^CONFIG_(PACKAGE_kmod-ath11k|PACKAGE_kmod-mac80211|PACKAGE_kmod-cfg80211|PACKAGE_ath11k-firmware|ATH11K|NSS_MEM_PROFILE|NSS_FIRMWARE_VERSION)' .config 2>/dev/null || echo "(no .config)"
+            echo "--- target dir ---"
+            ls bin/targets/qualcommax/ipq50xx/ 2>/dev/null | head -40 || echo "(no target dir)"
+            echo "--- kmod-ath11k files under bin/ ---"
+            find bin -name 'kmod-ath11k*' 2>/dev/null | head -20 || echo "(none)"
+            echo "--- disk ---"
+            df -h . 2>/dev/null | tail -1 || true
+          else
+            echo "(openwrt dir missing: failure was before clone)"
+          fi
+          echo "===== END DIAGNOSTICS ====="
