@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       device:
-        description: "Device profile to build (must have a mapping in the 'Apply device config' step)"
+        description: "xiaomi_cr8806 = M79A (CR8806/8808/8809 A版 M79); xiaomi_cr8808 = M81 (CR8808 A版 M81). Must have a mapping in the 'Apply device config' step; 选错硬件会编错固件，务必对号入座。"
         required: true
         default: "xiaomi_cr8806"
         type: choice
