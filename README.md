@@ -128,3 +128,27 @@ LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `p
 
 - 发布镜像时一并附带当次编译的 `config.buildinfo` 与 `feeds.buildinfo`（workflow 已收集），这是 GPL 源码提供义务的一部分
 - NSS 固件是专有二进制 blob，不是开源软件；caldata 来自设备自己的 ART 分区
+
+## 实机截图
+
+实机 LuCI 截图：
+
+![系统信息](docs/screenshots/system.jpg)
+
+系统信息：Xiaomi CR8806 (M79)，OpenWrt SNAPSHOT，内核 6.18.55
+
+![内存状态](docs/screenshots/memory.jpg)
+
+内存状态：Total Available 6.97 MiB，Swap 84 MiB（zram 已启用）
+
+![无线概览](docs/screenshots/wireless-overview.jpg)
+
+无线概览：2.4G 信道 6，5G 信道 36（auto）
+
+![WLAN Roaming（r/k）](docs/screenshots/roaming-r-k.jpg)
+
+WLAN Roaming：802.11r 关闭，802.11k 开启
+
+![WLAN Roaming（k/v）](docs/screenshots/roaming-k-v.jpg)
+
+WLAN Roaming：802.11k/v 组件开启，Time Advertisement 关闭
