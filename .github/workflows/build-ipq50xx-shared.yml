@@ -750,19 +750,30 @@ jobs:
         run: |
           set -Eeuo pipefail
           trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          DATE="$(date +'%Y.%m.%d')"
-          echo "RELEASE_TAG=${{ matrix.device }}-${DATE}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-          echo "RELEASE_NAME=${{ matrix.device }} NSS FW ${{ inputs.firmware }} - ${DATE} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
           # Supported models per firmware profile, so every release
           # states which hardware it may be flashed on. ALT models
           # (same profile, same DTS) count as supported for install,
           # on-device testing is tracked separately in the README.
+          # HW is the hardware subdivision used in the tag (M79A/M81).
           case "${{ matrix.device }}" in
-            xiaomi_cr8806) SUPPORTED_MODELS="Xiaomi CR8806 (A版 M79), Xiaomi CR8808 (A版 M79), Xiaomi CR8809 (A版 M79)" ;;
-            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (A版 M81)" ;;
-            *) SUPPORTED_MODELS="${{ matrix.device }}" ;;
+            xiaomi_cr8806) SUPPORTED_MODELS="Xiaomi CR8806 (A版 M79), Xiaomi CR8808 (A版 M79), Xiaomi CR8809 (A版 M79)" ; HW="M79A" ;;
+            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (A版 M81)" ; HW="M81" ;;
+            *) SUPPORTED_MODELS="${{ matrix.device }}" ; HW="${{ matrix.device }}" ;;
           esac
           echo "SUPPORTED_MODELS=$SUPPORTED_MODELS" >> "$GITHUB_ENV"
+          # Tag format: model-hardware-kernel-NSS-run-attempt (no vendor
+          # prefix, no date). Model = device profile without xiaomi_.
+          # Kernel is read from the base tree (not hardcoded) so a base
+          # update moves the tag with it. Run + attempt stay as the
+          # uniqueness suffix: without them, two builds from the same
+          # HEAD (same kernel + NSS) would collide on the same tag and
+          # release creation would fail.
+          MODEL="${{ matrix.device }}"
+          MODEL="${MODEL#xiaomi_}"
+          KERNEL="$(grep -E '^KERNEL_PATCHVER:=' openwrt/target/linux/qualcommax/Makefile | head -1 | cut -d= -f2 | tr -d ' ' || true)"
+          [ -n "$KERNEL" ] || { echo "ERROR: cannot read KERNEL_PATCHVER from base tree" >&2; exit 1; }
+          echo "RELEASE_TAG=${MODEL}-${HW}-${KERNEL}-${{ inputs.firmware }}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+          echo "RELEASE_NAME=${MODEL} ${HW} NSS FW ${{ inputs.firmware }} - Kernel ${KERNEL} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
 
       - name: Create draft release
         if: success()
