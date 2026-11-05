@@ -2,7 +2,7 @@
 #
 # The build itself lives in build-ipq50xx-shared.yml (reusable workflow);
 # this file only collects the dispatch inputs and passes them through,
-# so adding a device later means adding a caller, not editing the build.
+# so adding a device later means adding a job here, not editing the build.
 # Permissions (contents:write for release, actions:write for cache) are
 # set on the calling job: a reusable workflow runs with its caller's
 # permissions.
@@ -13,11 +13,12 @@ on:
   workflow_dispatch:
     inputs:
       device:
-        description: "xiaomi_cr8806 = M79A (CR8806/8808/8809 A版 M79); xiaomi_cr8808 = M81 (CR8808 A版 M81). Must have a mapping in the 'Apply device config' step; 选错硬件会编错固件，务必对号入座。"
+        description: "all = 全部编译 (M79A + M81, 同一次 run, 同一个 HEAD, 默认); xiaomi_cr8806 = M79A (CR8806/8808/8809 A版 M79) 单编; xiaomi_cr8808 = M81 (CR8808 A版 M81) 单编. Must have a mapping in the 'Apply device config' step; 选错硬件会编错固件，务必对号入座。"
         required: true
-        default: "xiaomi_cr8806"
+        default: "all"
         type: choice
         options:
+          - all
           - xiaomi_cr8806
           - xiaomi_cr8808
       firmware:
@@ -34,11 +35,23 @@ on:
         default: "13e8bc914709c4794b3ec7b0421d2038386e697e"
 
 jobs:
-  build:
-    name: Build ${{ inputs.device }} (NSS FW ${{ inputs.firmware }})
+  build-cr8806:
+    name: Build xiaomi_cr8806 (NSS FW ${{ inputs.firmware }})
+    if: inputs.device == 'all' || inputs.device == 'xiaomi_cr8806'
     uses: ./.github/workflows/build-ipq50xx-shared.yml
     with:
-      device: ${{ inputs.device }}
+      device: xiaomi_cr8806
+      firmware: ${{ inputs.firmware }}
+      base_ref: ${{ inputs.base_ref }}
+    permissions:
+      contents: write
+      actions: write
+  build-cr8808:
+    name: Build xiaomi_cr8808 (NSS FW ${{ inputs.firmware }})
+    if: inputs.device == 'all' || inputs.device == 'xiaomi_cr8808'
+    uses: ./.github/workflows/build-ipq50xx-shared.yml
+    with:
+      device: xiaomi_cr8808
       firmware: ${{ inputs.firmware }}
       base_ref: ${{ inputs.base_ref }}
     permissions:
