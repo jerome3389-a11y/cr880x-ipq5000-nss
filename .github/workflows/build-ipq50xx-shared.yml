@@ -756,9 +756,9 @@ jobs:
           # on-device testing is tracked separately in the README.
           # HW is the hardware subdivision used in the tag (M79A/M81).
           case "${{ matrix.device }}" in
-            xiaomi_cr8806) SUPPORTED_MODELS="Xiaomi CR8806 (A版 M79), Xiaomi CR8808 (A版 M79), Xiaomi CR8809 (A版 M79)" ; HW="M79A" ;;
-            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (A版 M81)" ; HW="M81" ;;
-            *) SUPPORTED_MODELS="${{ matrix.device }}" ; HW="${{ matrix.device }}" ;;
+            xiaomi_cr8806) SUPPORTED_MODELS="Xiaomi CR8806 (A版 M79), Xiaomi CR8808 (A版 M79), Xiaomi CR8809 (A版 M79)" ; HW="M79A" ; SUPPORTED_SHORT="CR8806/8808/8809 A版 M79" ;;
+            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (A版 M81)" ; HW="M81" ; SUPPORTED_SHORT="CR8808 A版 M81" ;;
+            *) SUPPORTED_MODELS="${{ matrix.device }}" ; HW="${{ matrix.device }}" ; SUPPORTED_SHORT="${{ matrix.device }}" ;;
           esac
           echo "SUPPORTED_MODELS=$SUPPORTED_MODELS" >> "$GITHUB_ENV"
           # Tag format: model-hardware-kernel-NSS-run-attempt (no vendor
@@ -773,7 +773,7 @@ jobs:
           KERNEL="$(grep -E '^KERNEL_PATCHVER:=' openwrt/target/linux/qualcommax/Makefile | head -1 | cut -d= -f2 | tr -d ' ' || true)"
           [ -n "$KERNEL" ] || { echo "ERROR: cannot read KERNEL_PATCHVER from base tree" >&2; exit 1; }
           echo "RELEASE_TAG=${MODEL}-${HW}-${KERNEL}-${{ inputs.firmware }}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-          echo "RELEASE_NAME=${MODEL} ${HW} NSS FW ${{ inputs.firmware }} - Kernel ${KERNEL} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
+          echo "RELEASE_NAME=${MODEL} ${HW} [${SUPPORTED_SHORT}] NSS FW ${{ inputs.firmware }} - Kernel ${KERNEL} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
 
       - name: Create draft release
         if: success()
