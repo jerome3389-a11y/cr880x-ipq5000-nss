@@ -33,11 +33,21 @@ uci set firewall.@redirect[-1].dest_port='53'
 uci set firewall.@redirect[-1].target='DNAT'
 uci commit firewall
 
-# --- dnsmasq cache size (switched from SmartDNS 2026-11-03) ---
-# dnsmasq is the default resolver. Raise its cache from the 150-entry
-# default so repeated queries are answered locally; 1000 entries cost
-# only tens of KB of RAM. Restart to apply (first boot only).
+# --- dnsmasq cache size + listen interface + cached record types ---
+# dnsmasq is the default resolver (switched from SmartDNS 2026-11-03).
+# Raise its cache from the 150-entry default so repeated queries are
+# answered locally; 1000 entries cost only tens of KB of RAM.
+# Listen explicitly on lan + cache ANY/A/AAAA (fixed 2026-11-05): the
+# default left IPv6/AAAA-dependent CDN queries unanswered (streaming
+# avatars / video thumbnails failed). interface 'lan' is LAN-IP-agnostic
+# (a literal listen_address list would bake in one device's LAN IP /
+# ULA / link-local); it covers all br-lan addresses (v4+v6).
+# Restart to apply (first boot only).
 uci set dhcp.@dnsmasq[0].cachesize='1000'
+uci set dhcp.@dnsmasq[0].interface='lan'
+uci add_list dhcp.@dnsmasq[0].cache_rr='ANY'
+uci add_list dhcp.@dnsmasq[0].cache_rr='A'
+uci add_list dhcp.@dnsmasq[0].cache_rr='AAAA'
 uci commit dhcp
 /etc/init.d/dnsmasq restart >/dev/null 2>&1
 /etc/init.d/firewall reload >/dev/null 2>&1
