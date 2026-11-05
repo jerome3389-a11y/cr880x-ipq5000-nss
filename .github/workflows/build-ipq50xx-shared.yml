@@ -757,7 +757,7 @@ jobs:
           # HW is the hardware subdivision used in the tag (M79A/M81).
           case "${{ matrix.device }}" in
             xiaomi_cr8806) SUPPORTED_MODELS="Xiaomi CR8806 (A版 M79), Xiaomi CR8808 (A版 M79), Xiaomi CR8809 (A版 M79)" ; HW="M79A" ; SUPPORTED_SHORT="CR8806/8808/8809 A版 M79" ;;
-            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (A版 M81)" ; HW="M81" ; SUPPORTED_SHORT="CR8808 A版 M81" ;;
+            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (A版 M81) (未测试), Redmi AX3000 (未测试), Xiaomi AX3000 (未测试)" ; HW="M81" ; SUPPORTED_SHORT="CR8808 A版 M81 / AX3000 (均未测试)" ;;
             *) SUPPORTED_MODELS="${{ matrix.device }}" ; HW="${{ matrix.device }}" ; SUPPORTED_SHORT="${{ matrix.device }}" ;;
           esac
           echo "SUPPORTED_MODELS=$SUPPORTED_MODELS" >> "$GITHUB_ENV"
