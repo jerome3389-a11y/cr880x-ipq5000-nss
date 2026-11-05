@@ -87,6 +87,21 @@ LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `p
 - 刷坏恢复：断电，按住 reset 再通电，多试几次进 trigsoft web UI，刷回已知好的固件。
 - 首次开机：出厂 radio 全开，WiFi 与 root 均已设默认凭证（见上）；默认值是公开的，建议刷后改掉。
 
+## 分区表
+
+- 本固件要求合并分区表：内核 DTS 写死 fixed-partitions，rootfs 在 0xA80000、大小 0x7480000（116.5M），启动时按这个表找 UBI（`ubi.mtd=rootfs`，root 为 UBI 卷）。如果闪存里还是原厂四个分区，那里就没有一个 116.5M 的完整 UBI，UBI 挂不上，启动失败。
+- 刷机不用提前准备分区表：合并分区表由 trigsoft 的 web U-Boot（[trigsoft/cr8808_web_uboot](https://github.com/trigsoft/cr8808_web_uboot)）在刷 UBI 时改写产生——先改表为合并，再写镜像。所以从原厂刷、从合并刷，刷完都是合并表，正好满足内核的要求。
+- mtd0–17（SBL1、MIBIB、APPSBL、ART 等）原厂与合并一模一样；刷本固件不动 bootloader，只动固件区（0xA80000–0x7F00000）。
+
+| 固件区（0xA80000–0x7F00000，共 116.5M） | 原厂 | 合并 |
+| --- | --- | --- |
+| 分区 | rootfs 36M + rootfs_1 36M + overlay 31M + data 13.5M（双槽） | rootfs 116.5M 一个分区（UBI：kernel + rootfs + rootfs_data，单槽） |
+| overlay 空间 | 31M（独立分区） | ~82.5M（UBI 内的 rootfs_data，自动扩） |
+
+- 刷机规则：走 trigsoft web UI（192.168.10.1）刷 `factory.ubi`——原厂、合并都能刷，刷完都能启动（刷完一定是合并表）。
+- 别走：原厂 recovery、手动 mtd 写到 36M 的 rootfs 槽、sysupgrade（sysupgrade 本来就不可用）——那些路子不改表，刷完还是原厂表，内核起不来。
+- M81 分区与 M79 相同，规则一样。
+
 ## 编译
 
 - `.github/workflows/build-ipq50xx.yml`（瘦调用方）+ `build-ipq50xx-shared.yml`（共用构建），手动触发（`workflow_dispatch`）
