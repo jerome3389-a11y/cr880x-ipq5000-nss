@@ -1,6 +1,6 @@
 # CR880X IPQ5000 NSS
 
-小米 CR880X（CR8806 / CR8808 / CR8809）IPQ5000 平台的 OpenWrt 固件自动编译项目：GitHub Actions 自动编译带 Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速**。本仓库只放编译脚本、配置和设备定义，不放底包源码；编译时 workflow 按钉住的提交克隆底包再编译。
+小米 CR880X（CR8806 / CR8808 / CR8809，同一硬件）IPQ5000 平台的 OpenWrt 固件自动编译项目：GitHub Actions 自动编译带 Qualcomm NSS 硬件加速的固件，目标是**最新内核 + 最强 NSS 加速**。本仓库只放编译脚本、配置和设备定义，不放底包源码；编译时 workflow 按钉住的提交克隆底包再编译。**CR8806 / CR8808 / CR8809 只是运营商后缀，硬件是同一套；真正分硬件的是主板版本——M79A、M81、B版。**本项目所有对外命名一律以主板版本（M79A / M81）为准，不用运营商型号当标签。
 
 ## 基础版本
 
@@ -71,11 +71,13 @@ LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `p
 
 ## 支持的型号
 
-| 固件（profile） | 支持的设备 | 芯片 | 状态 |
+| 固件（主板版本） | 支持的设备 | 芯片 | 状态 |
 |---|---|---|---|
-| `xiaomi_cr8806` | CR8806 / CR8808 / CR8809（A版 M79，共用同一 profile） | IPQ5000 + QCA8337；2.4G FEM MXD7223（无 PA）；5G QCN6122 + RTC66568 | 已在 CR8808（A版 M79）上机验证 |
-| `xiaomi_cr8808` | CR8808（A版 M81）、Redmi AX3000（与 M81 同硬件）、Xiaomi AX3000（与 M81 同硬件） | IPQ5000 + QCA8337；2.4G FEM CTR66266；5G QCN6122 + RTC66568 | 均未上机验证 |
+| **M79A** | CR8806 / CR8808 / CR8809（A版 M79，共用同一固件） | IPQ5000 + QCA8337；2.4G FEM MXD7223（无 PA）；5G QCN6122 + RTC66568 | 已在 CR8808（A版 M79）上机验证 |
+| **M81** | CR8808（A版 M81）、Redmi AX3000（与 M81 同硬件）、Xiaomi AX3000（与 M81 同硬件） | IPQ5000 + QCA8337；2.4G FEM CTR66266；5G QCN6122 + RTC66568 | 均未上机验证 |
 | — | CR881x（B版）及其他所有型号 | IPQ5018 + YT9215S；5G QCN6122；FEM 未确认 | 不支持，刷错变砖 |
+
+（内部 profile 代号：M79A 对应 `xiaomi_cr8806`，M81 对应 `xiaomi_cr8808`——仅内部使用，不作对外标签。）
 
 认板看主板版号 + 板型，不要只看型号：CR8808 有 M79 和 M81 两种主板；A版与 B版交换芯片不同，固件不通用。
 
@@ -108,11 +110,11 @@ LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `p
 
 | 输入 | 可选值 | 默认 |
 |---|---|---|
-| `device` | `xiaomi_cr8806` / `xiaomi_cr8808` | —（必填） |
+| `device` | `M79A` / `M81` | —（必填） |
 | `firmware` | `12.5` / `12.2` | `12.5` |
 | `base_ref` | 底包提交 | `13e8bc914709c4794b3ec7b0421d2038386e697e` |
 
-- 每次成功编译发一个独立 Release（tag `设备-日期-运行号-尝试号`）：先发 draft，验远端摘要通过后再发布，坏版永不公开；release 里只有固件（`factory.ubi`）；buildinfo、完整 `.config`、校验文件与第三方来源清单只作 workflow 诊断产物，不进 release
+- 每次成功编译发一个独立 Release（tag `主板版本-内核-NSS-运行号-尝试号`，如 `M79A-6.18-12.5-21-1`）：先发 draft，验远端摘要通过后再发布，坏版永不公开；release 里只有固件（`factory.ubi`）；buildinfo、完整 `.config`、校验文件与第三方来源清单只作 workflow 诊断产物，不进 release
 - 缓存：ccache 按工具链 + 编译器键入，staging / dl 按配置哈希键入；旧缓存与旧工作流自动清理（工作流保留 2 天，Release 不受影响）
 - 要加功能请重编译：本项目不提供自建 kmod 仓库；kmod 包带内核 vermagic，只能装在同一编译的内核上
 

@@ -756,24 +756,24 @@ jobs:
           # on-device testing is tracked separately in the README.
           # HW is the hardware subdivision used in the tag (M79A/M81).
           case "${{ matrix.device }}" in
-            xiaomi_cr8806) SUPPORTED_MODELS="Xiaomi CR8806 (A版 M79), Xiaomi CR8808 (A版 M79), Xiaomi CR8809 (A版 M79)" ; HW="M79A" ;;
-            xiaomi_cr8808) SUPPORTED_MODELS="Xiaomi CR8808 (A版 M81) (未测试), Redmi AX3000 (未测试), Xiaomi AX3000 (未测试)" ; HW="M81" ;;
+            xiaomi_cr8806) SUPPORTED_MODELS="M79A (CR8806 / CR8808 / CR8809 A版)" ; HW="M79A" ;;
+            xiaomi_cr8808) SUPPORTED_MODELS="M81 (CR8808 A版 / Redmi AX3000 / Xiaomi AX3000) (均未测试)" ; HW="M81" ;;
             *) SUPPORTED_MODELS="${{ matrix.device }}" ; HW="${{ matrix.device }}" ;;
           esac
           echo "SUPPORTED_MODELS=$SUPPORTED_MODELS" >> "$GITHUB_ENV"
-          # Tag format: model-hardware-kernel-NSS-run-attempt (no vendor
-          # prefix, no date). Model = device profile without xiaomi_.
-          # Kernel is read from the base tree (not hardcoded) so a base
-          # update moves the tag with it. Run + attempt stay as the
-          # uniqueness suffix: without them, two builds from the same
-          # HEAD (same kernel + NSS) would collide on the same tag and
-          # release creation would fail.
-          MODEL="${{ matrix.device }}"
-          MODEL="${MODEL#xiaomi_}"
+          # Tag format: hardware-kernel-NSS-run-attempt (no vendor
+          # prefix, no date, no operator model). The identifier is the
+          # hardware board version (M79A/M81) — CR8806/8808/8809 are
+          # the same hardware and must not appear in the tag. Kernel is
+          # read from the base tree (not hardcoded) so a base update
+          # moves the tag with it. Run + attempt stay as the uniqueness
+          # suffix: without them, two builds from the same HEAD (same
+          # kernel + NSS) would collide on the same tag and release
+          # creation would fail.
           KERNEL="$(grep -E '^KERNEL_PATCHVER:=' openwrt/target/linux/qualcommax/Makefile | head -1 | cut -d= -f2 | tr -d ' ' || true)"
           [ -n "$KERNEL" ] || { echo "ERROR: cannot read KERNEL_PATCHVER from base tree" >&2; exit 1; }
-          echo "RELEASE_TAG=${MODEL}-${HW}-${KERNEL}-${{ inputs.firmware }}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-          echo "RELEASE_NAME=${MODEL} ${HW} NSS FW ${{ inputs.firmware }} - Kernel ${KERNEL} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=${HW}-${KERNEL}-${{ inputs.firmware }}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+          echo "RELEASE_NAME=${HW} NSS FW ${{ inputs.firmware }} - Kernel ${KERNEL} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
 
       - name: Create draft release
         if: success()
