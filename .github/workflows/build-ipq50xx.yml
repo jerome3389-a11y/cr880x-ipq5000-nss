@@ -6,6 +6,13 @@
 # Permissions (contents:write for release, actions:write for cache) are
 # set on the calling job: a reusable workflow runs with its caller's
 # permissions.
+#
+# NOTE: the menu shows hardware board versions (M79A / M81) because that
+# is the distinction that matters — NOT the operator model numbers
+# (8806/8808/8809 are carrier suffixes; a CR8808 exists as both M79A and
+# M81). The menu values are translated here to the internal device names
+# (xiaomi_cr8806 / xiaomi_cr8808) that the shared workflow expects, so
+# the shared workflow itself is untouched by this rename.
 
 name: Build IPQ50xx NSS firmware
 
@@ -13,14 +20,14 @@ on:
   workflow_dispatch:
     inputs:
       device:
-        description: "all = 全部编译 (M79A + M81, 同一次 run, 同一个 HEAD, 默认); xiaomi_cr8806 = M79A (CR8806/8808/8809 A版 M79) 单编; xiaomi_cr8808 = M81 (CR8808 A版 M81) 单编. Must have a mapping in the 'Apply device config' step; 选错硬件会编错固件，务必对号入座。"
+        description: "按主板版本选，运营商型号（8806/8808/8809）不作数。all = M79A + M81 都编（同一次 run、同一个 HEAD，默认）；M79A = CR8806/CR8808/CR8809 A版 M79（IPQ5000 + 2.4G MXD7223）单编；M81 = CR8808 A版 M81 / 红米 AX3000（IPQ5000 + 2.4G CTR66266）单编。B版（CR881x，IPQ5018）不支持，别选。选错硬件会编错固件，务必对号入座。"
         required: true
         default: "all"
         type: choice
         options:
           - all
-          - xiaomi_cr8806
-          - xiaomi_cr8808
+          - M79A
+          - M81
       firmware:
         description: "NSS firmware line. 12.5 is the default; 12.2 is the fallback. The driver is built for the firmware shipped, never mix them."
         required: true
@@ -36,8 +43,8 @@ on:
 
 jobs:
   build-cr8806:
-    name: Build xiaomi_cr8806 (NSS FW ${{ inputs.firmware }})
-    if: inputs.device == 'all' || inputs.device == 'xiaomi_cr8806'
+    name: Build M79A (NSS FW ${{ inputs.firmware }})
+    if: inputs.device == 'all' || inputs.device == 'M79A'
     uses: ./.github/workflows/build-ipq50xx-shared.yml
     with:
       device: xiaomi_cr8806
@@ -47,8 +54,8 @@ jobs:
       contents: write
       actions: write
   build-cr8808:
-    name: Build xiaomi_cr8808 (NSS FW ${{ inputs.firmware }})
-    if: inputs.device == 'all' || inputs.device == 'xiaomi_cr8808'
+    name: Build M81 (NSS FW ${{ inputs.firmware }})
+    if: inputs.device == 'all' || inputs.device == 'M81'
     uses: ./.github/workflows/build-ipq50xx-shared.yml
     with:
       device: xiaomi_cr8808
