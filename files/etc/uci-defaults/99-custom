@@ -52,4 +52,15 @@ uci commit dhcp
 /etc/init.d/dnsmasq restart >/dev/null 2>&1
 /etc/init.d/firewall reload >/dev/null 2>&1
 
+# --- Enable QCA NSS DRV by default (user decision 2026-11-06) ---
+# The qca-nss-drv init script (START=94) pins NSS IRQ affinity and
+# enables NSS RPS (dev.nss.rps.enable=1). It ships DISABLED by default
+# in this firmware; enable it on first boot so NSS runs with the IRQ /
+# RPS optimization out of the box. The NSS driver itself loads via
+# modules.d and works regardless — this only adds the affinity + RPS
+# tuning. Start it now as well (harmless no-op if NSS is not up yet;
+# it will run at START=94 on every boot from here on).
+/etc/init.d/qca-nss-drv enable >/dev/null 2>&1
+/etc/init.d/qca-nss-drv start >/dev/null 2>&1
+
 exit 0
