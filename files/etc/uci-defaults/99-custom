@@ -2,10 +2,19 @@
 # First-boot customizations for ipq50xx-openwrt-nss.
 # Runs once on first boot (the uci-defaults mechanism removes this file
 # afterwards). No set -e: a failed step must not abort the rest.
-# Kept presets (user decision 2026-11-07): BBR, Argon theme, qca-nss-drv.
+# Kept presets (user decision 2026-11-07): BBR, Argon theme, NSS on.
+# (NSS is on via the base-tree plane; it is NOT enabled via the
+# qca-nss-drv init script — see the 2026-11-08 removal note below.)
 # Removed 2026-11-07: DNS hijack (hardcoded LAN IP broke on LAN IP change),
 # dnsmasq cachesize (redundant, default 1000), interface='lan', cache_rr
 # (A/AAAA redundant defaults; ANY removed with the trim).
+# Removed 2026-11-08 (user: delete dead code): the qca-nss-drv enable
+# block. It did nothing lasting: this script runs before the base tree's
+# nss-dwmac.defaults, which disables qca-nss-drv again in the same first
+# boot on purpose (its init only does IRQ affinity + RPS from a quad-core
+# ipq807x table, before the plane is armed; nss-irq-affinity does the job
+# after arming). NSS itself stays on via the plane (driver loads via
+# modules.d), so no enable block is needed here.
 
 # --- TCP BBR as the default congestion control ---
 # Kernel-config default does not survive defconfig on this tree, so set
@@ -20,16 +29,5 @@ sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1
 # fallback default, so set Argon explicitly (reversible in LuCI).
 uci set luci.main.mediaurlbase='/luci-static/argon'
 uci commit luci
-
-# --- Enable QCA NSS DRV by default (user decision 2026-11-06) ---
-# The qca-nss-drv init script (START=94) pins NSS IRQ affinity and
-# enables NSS RPS (dev.nss.rps.enable=1). It ships DISABLED by default
-# in this firmware; enable it on first boot so NSS runs with the IRQ /
-# RPS optimization out of the box. The NSS driver itself loads via
-# modules.d and works regardless — this only adds the affinity + RPS
-# tuning. Start it now as well (harmless no-op if NSS is not up yet;
-# it will run at START=94 on every boot from here on).
-/etc/init.d/qca-nss-drv enable >/dev/null 2>&1
-/etc/init.d/qca-nss-drv start >/dev/null 2>&1
 
 exit 0
