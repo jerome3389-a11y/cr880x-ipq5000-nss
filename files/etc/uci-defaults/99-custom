@@ -2,9 +2,10 @@
 # First-boot customizations for ipq50xx-openwrt-nss.
 # Runs once on first boot (the uci-defaults mechanism removes this file
 # afterwards). No set -e: a failed step must not abort the rest.
-# Kept presets (user decision 2026-11-07): BBR, Argon theme, NSS on.
-# (NSS is on via the base-tree plane; it is NOT enabled via the
-# qca-nss-drv init script — see the 2026-11-08 removal note below.)
+# This script holds Adblock only (user decision 2026-11-09: scripts are
+# for personalized config, and only Adblock stays in the script).
+# BBR lives in files/etc/sysctl.conf and Argon in files/etc/config/luci
+# now (static files, no script). NSS is on via the base-tree plane.
 # Removed 2026-11-07: DNS hijack (hardcoded LAN IP broke on LAN IP change),
 # dnsmasq cachesize (redundant, default 1000), interface='lan', cache_rr
 # (A/AAAA redundant defaults; ANY removed with the trim).
@@ -16,18 +17,11 @@
 # after arming). NSS itself stays on via the plane (driver loads via
 # modules.d), so no enable block is needed here.
 
-# --- TCP BBR as the default congestion control ---
-# Kernel-config default does not survive defconfig on this tree, so set
-# it here: persist in sysctl.conf for every boot, and apply live now
-# (the tcp_bbr module is already loaded via modules.d by this point).
-grep -q '^net.ipv4.tcp_congestion_control=bbr$' /etc/sysctl.conf 2>/dev/null || \
-  echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
-sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1
-
-# --- Argon as the default LuCI theme ---
-# Both Argon and Bootstrap are installed; Bootstrap is OpenWrt's
-# fallback default, so set Argon explicitly (reversible in LuCI).
-uci set luci.main.mediaurlbase='/luci-static/argon'
-uci commit luci
+# --- Adblock: make sure the service is enabled ---
+# The feeds and adb_enabled='1' live in files/etc/config/adblock. The
+# service is enabled by default, so this is belt and braces: it starts
+# at its own boot order, after the network is up, and fetches the lists
+# then. No start here — this runs before network starts.
+/etc/init.d/adblock enable >/dev/null 2>&1
 
 exit 0
