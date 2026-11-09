@@ -1,0 +1,44 @@
+--- a/package/nss/nss-tools/files/nss-dwmac.defaults
++++ b/package/nss/nss-tools/files/nss-dwmac.defaults
+@@ -362,14 +362,16 @@
+ 	[ -n "$(uci -q get nss.general.fw_logbuf)" ] || uci set nss.general.fw_logbuf='256'
+ 	# board.d may split the DSA ports across two CPU links: the Redmi AX5400,
+ 	# the Cudy P5 and the CMCC PZ-L8 put lan1-3 on eth1 and the WAN port on
+-	# eth0. This topology cannot keep that split. The plane arms one conduit
+-	# and qca-dsa-nss hangs a firmware VLAN interface off that conduit's
+-	# interface number, so a port on the other link is host-only; on the
+-	# AX5400 the odd link is also GMAC0 (PHY to PHY into port 5), whose RX
+-	# is dead in mainline too (openwrt#24696). Put every port on the link
+-	# that already carries most of them - the same link nss_dsa_conduit()
+-	# picks at boot. A tie is left alone: with one port on each link there
+-	# is nothing here to say which of them works.
++	# eth0. By default this topology cannot keep that split. The plane arms
++	# one conduit and qca-dsa-nss hangs a firmware VLAN interface off that
++	# conduit's interface number, so a port on the other link is host-only;
++	# on the AX5400 the odd link is also GMAC0 (PHY to PHY into port 5),
++	# whose RX is dead in mainline too (openwrt#24696). Put every port on
++	# the link that already carries most of them - the same link
++	# nss_dsa_conduit() picks at boot. A tie is left alone: with one port
++	# on each link there is nothing here to say which of them works.
++	# Boards whose both CPU links are known working keep their split
++	# instead (case below).
+ 	#
+ 	# The split has two sources, and both have to be read. board.d's
+ 	# ucidef_set_network_device_conduit does not write a uci section: the
+@@ -456,6 +458,16 @@
+ 		logger -t nss "topology dsa: the DSA ports are split evenly between two CPU links - leaving the conduits alone, set them by hand if only one link works"
+ 		main_conduit=''
+ 	fi
++	# Boards whose both CPU links are known working keep the board.d
++	# split: moving a port would only break the link that works. The
++	# AX5400 and the PZ-L8 stay on the majority vote above - their
++	# GMAC0 RX is the dead one, so moving ports is their only option.
++	case "$(board_name)" in
++	xiaomi,cr8806|xiaomi,cr8808)
++		logger -t nss "topology dsa: keeping the board.d split (wan on eth0, lan on eth1) - both CPU links are armed"
++		main_conduit=''
++		;;
++	esac
+ 	if [ -n "$main_conduit" ]; then
+ 		for e in $dsa_ports; do
+ 			port="${e%%=*}"

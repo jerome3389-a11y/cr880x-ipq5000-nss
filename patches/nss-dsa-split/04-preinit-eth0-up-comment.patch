@@ -1,0 +1,19 @@
+--- a/target/linux/qualcommax/ipq50xx/base-files/lib/preinit/05_cr8806_eth0_up
++++ b/target/linux/qualcommax/ipq50xx/base-files/lib/preinit/05_cr8806_eth0_up
+@@ -4,10 +4,12 @@
+ # link never comes up. Opening eth0 early attaches the GE PHY in time.
+ #
+ # This is a property of the link, not of the board: it is needed only where
+-# nothing else opens eth0 early. Here the WAN port is on eth1 and nothing
+-# opens eth0. On a board with the same link and the WAN on eth0 (the Redmi
+-# AX5400 by its DTS, not tested) netifd opens eth0 early and this hook should
+-# not be needed; do not copy it there without checking the PHY4 link first.
++# nothing else opens eth0 early. The WAN port is on eth0 here (board.d split,
++# kept by the NSS topology), so netifd opens eth0 as the WAN conduit - but
++# only once it runs, after preinit. The hook stays as early insurance for
++# the autoneg window above; do not remove it without checking the PHY4 link
++# first. (Before the split was kept, the WAN was on eth1 and nothing opened
++# eth0, which is why this hook existed at all.)
+ cr8806_eth0_up() {
+ 	[ "$(board_name)" = "xiaomi,cr8806" ] || return 0
+ 	ip link set eth0 up

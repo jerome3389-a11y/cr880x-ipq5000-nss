@@ -1,0 +1,100 @@
+--- a/package/nss/nss-tools/files/nss-dwmac.init
++++ b/package/nss/nss-tools/files/nss-dwmac.init
+@@ -156,7 +156,7 @@
+ # ports off (nss_dsa_conduit), and a board with no switch at all has
+ # nothing to switch. nss.general.trunk still overrides the conduit.
+ switch_to_8021q() {
+-	local trunk tagging cur want other stray port up
++	local trunk tagging cur want other stray port up conduits failed=0
+ 
+ 	trunk="$(uci -q get nss.general.trunk)"
+ 	if [ -z "$trunk" ]; then
+@@ -167,11 +167,13 @@
+ 		logger -t nss "topology dsa: no DSA switch on this board - the GMACs go to the firmware as they are"
+ 		return 0
+ 	fi
+-	# Ports left on another CPU link are invisible to the firmware:
+-	# qca-dsa-nss hangs its VLAN interfaces off this conduit's interface
+-	# number alone. The first-boot defaults put every port on one link, so
+-	# this is about a board table that splits them (the AX5400 and the
+-	# PZ-L8 do) on a config that predates that, or an admin's own split.
++	# Every conduit with user ports needs both links in plain 802.1Q:
++	# the firmware parses the tag, the host tag does not parse. The
++	# first-boot defaults put every port on one link, so a second
++	# conduit with ports is about a board table that splits them (the
++	# AX5400 and the PZ-L8 do) on a config that predates that, an
++	# admin's own split, or a board whose split is kept.
++	conduits="$trunk"
+ 	for other in /sys/class/net/*; do
+ 		[ -d "$other/dsa" ] || continue
+ 		other="${other##*/}"
+@@ -183,36 +185,41 @@
+ 			[ -n "$(cat "/sys/class/net/$port/phys_switch_id" 2>/dev/null)" ] || continue
+ 			stray="$stray $port"
+ 		done
+-		[ -n "$stray" ] && logger -t nss "topology dsa:$stray on conduit $other, not $trunk - those ports stay on the host path (a 'config device' section with option name <port> and option conduit $trunk moves one; board.d's split is in /etc/board.json, not in /etc/config/network)"
++		[ -n "$stray" ] && conduits="$conduits $other"
+ 	done
+-	tagging="/sys/class/net/$trunk/dsa/tagging"
+-	cur="$(cat "$tagging" 2>/dev/null)"
+-	if [ -z "$cur" ]; then
+-		logger -t nss "topology dsa: $trunk is not a DSA conduit, nothing to switch"
+-		return 1
+-	fi
+-	want="$(nss_dsa_tagger "$trunk")" || {
+-		logger -t nss "topology dsa: no tag_8021q tagger for the switch behind $trunk (driver $want) - the firmware will not parse this traffic"
+-		return 1
+-	}
+-	[ "$cur" = "$want" ] && return 0
+-	# The kernel refuses the switch while the conduit or any user port is
+-	# up. netifd has not run yet, but preinit brings the lan ports up for
+-	# the failsafe window and can leave them admin-up (measured: lan1 up
+-	# at 6 s, the write at 11 s fails). The user ports are the conduit's
+-	# uppers in sysfs; take them and the conduit down first - netifd
+-	# configures them from scratch a moment later anyway.
+-	for up in "/sys/class/net/$trunk"/upper_*; do
+-		[ -e "$up" ] || continue
+-		ip link set "${up##*/upper_}" down 2>/dev/null
++	for trunk in $conduits; do
++		tagging="/sys/class/net/$trunk/dsa/tagging"
++		cur="$(cat "$tagging" 2>/dev/null)"
++		if [ -z "$cur" ]; then
++			logger -t nss "topology dsa: $trunk is not a DSA conduit, nothing to switch"
++			failed=1
++			continue
++		fi
++		want="$(nss_dsa_tagger "$trunk")" || {
++			logger -t nss "topology dsa: no tag_8021q tagger for the switch behind $trunk (driver $want) - the firmware will not parse this traffic"
++			failed=1
++			continue
++		}
++		[ "$cur" = "$want" ] && continue
++		# The kernel refuses the switch while the conduit or any user port is
++		# up. netifd has not run yet, but preinit brings the lan ports up for
++		# the failsafe window and can leave them admin-up (measured: lan1 up
++		# at 6 s, the write at 11 s fails). The user ports are the conduit's
++		# uppers in sysfs; take them and the conduit down first - netifd
++		# configures them from scratch a moment later anyway.
++		for up in "/sys/class/net/$trunk"/upper_*; do
++			[ -e "$up" ] || continue
++			ip link set "${up##*/upper_}" down 2>/dev/null
++		done
++		ip link set "$trunk" down 2>/dev/null
++		if echo "$want" > "$tagging" 2>/dev/null; then
++			logger -t nss "topology dsa: $trunk tagger $cur -> $want"
++			continue
++		fi
++		logger -t nss "topology dsa: could not switch $trunk tagger from $cur to $want (ports up? kernel without the $want tag driver?) - the firmware will not parse this traffic"
++		failed=1
+ 	done
+-	ip link set "$trunk" down 2>/dev/null
+-	if echo "$want" > "$tagging" 2>/dev/null; then
+-		logger -t nss "topology dsa: $trunk tagger $cur -> $want"
+-		return 0
+-	fi
+-	logger -t nss "topology dsa: could not switch $trunk tagger from $cur to $want (ports up? kernel without the $want tag driver?) - the firmware will not parse this traffic"
+-	return 1
++	return "$failed"
+ }
+ 
+ start_service() {
