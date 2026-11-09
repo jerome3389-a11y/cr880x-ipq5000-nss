@@ -15,6 +15,9 @@
 # ipq807x table, before the plane is armed; nss-irq-affinity does the job
 # after arming). NSS itself stays on via the plane (driver loads via
 # modules.d), so no enable block is needed here.
+# Fixed 2026-11-09 (user: fix firmware): WAN gets its own factory MAC —
+# see the block before exit 0. The two factory MACs differ per unit, so
+# they are read live, never hardcoded.
 
 # --- TCP BBR as the default congestion control ---
 # Kernel-config default does not survive defconfig on this tree, so set
@@ -29,5 +32,16 @@ sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1
 # fallback default, so set Argon explicitly (reversible in LuCI).
 uci set luci.main.mediaurlbase='/luci-static/argon'
 uci commit luci
+
+# --- WAN gets its own factory MAC (user decision 2026-11-09) ---
+# DSA collapses WAN and br-lan onto one MAC (eth1's, the LAN-path MAC
+# from ART offset 6). eth0 holds the other factory MAC (ART offset 0,
+# the WAN-path MAC) but nothing uses it. Give WAN eth0's MAC so each
+# side has its own factory MAC; br-lan keeps eth1's. Read it live: the
+# two MACs differ per unit, so never hardcode them. This runs before
+# network starts, so the setting is picked up in this same first boot.
+WAN_MAC="$(cat /sys/class/net/eth0/address 2>/dev/null)"
+[ -n "$WAN_MAC" ] && uci set network.wan.macaddr="$WAN_MAC"
+uci commit network
 
 exit 0
