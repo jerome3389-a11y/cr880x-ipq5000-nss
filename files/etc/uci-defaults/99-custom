@@ -2,8 +2,8 @@
 # First-boot customizations for ipq50xx-openwrt-nss.
 # Runs once on first boot (the uci-defaults mechanism removes this file
 # afterwards). No set -e: a failed step must not abort the rest.
-# This script holds Adblock only (user decision 2026-11-09: scripts are
-# for personalized config, and only Adblock stays in the script).
+# This script holds personalized config only (user decision 2026-11-09:
+# scripts are for personalized config): Adblock, WiFi, timezone.
 # BBR lives in files/etc/sysctl.conf and Argon in files/etc/config/luci
 # now (static files, no script). NSS is on via the base-tree plane.
 # Removed 2026-11-07: DNS hijack (hardcoded LAN IP broke on LAN IP change),
@@ -23,5 +23,37 @@
 # at its own boot order, after the network is up, and fetches the lists
 # then. No start here — this runs before network starts.
 /etc/init.d/adblock enable >/dev/null 2>&1
+
+# --- WiFi: enable both radios with the usual SSIDs (preset, added 2026-11-10) ---
+# Set by radio name only (radio0 = 2G, radio1 = 5G). No paths are written:
+# the device paths come from the image's own wireless defaults, so a
+# wrong baked path (the JDCloud #4 failure: extra 'libwrt' network, WiFi
+# dead) cannot happen here. No country set, same as the 6.18 backup.
+uci set wireless.radio0.band='2g'
+uci set wireless.radio0.channel='1'
+uci set wireless.radio0.htmode='HE20'
+uci set wireless.radio0.cell_density='0'
+uci set wireless.radio0.disabled='0'
+uci set wireless.default_radio0.ssid='OpenWrt'
+uci set wireless.default_radio0.encryption='psk2'
+uci set wireless.default_radio0.key='12345678'
+uci set wireless.default_radio0.ieee80211k='1'
+uci set wireless.default_radio0.ieee80211v='1'
+uci set wireless.radio1.band='5g'
+uci set wireless.radio1.channel='36'
+uci set wireless.radio1.htmode='HE80'
+uci set wireless.radio1.cell_density='0'
+uci set wireless.radio1.disabled='0'
+uci set wireless.default_radio1.ssid='OpenWrt_5G'
+uci set wireless.default_radio1.encryption='psk2'
+uci set wireless.default_radio1.key='12345678'
+uci set wireless.default_radio1.ieee80211k='1'
+uci set wireless.default_radio1.ieee80211v='1'
+uci commit wireless
+
+# --- Timezone: Asia/Shanghai (preset, added 2026-11-10) ---
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+uci commit system
 
 exit 0
