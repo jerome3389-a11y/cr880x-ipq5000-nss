@@ -219,6 +219,32 @@ jobs:
           fi
           test ! -f "$HOOK" || { echo "::error:: $HOOK still present"; exit 1; }
 
+      # Remove the packet-steering service entirely (NSS): its .uc
+      # script re-runs on every interface event and was observed at
+      # 9.7% CPU. NSS offloads the data path to firmware; the service's
+      # host-NAPI model fights firmware RPS (measured 749-800 Mbit/s
+      # with it off vs 619-626 on, with n2h drops). Setting
+      # packet_steering='0' only makes the script write rps_cpus=0 and
+      # exit — it still runs. Deleting the init script and the .uc
+      # file means it never runs at all. RPS stays at the kernel
+      # default, which is correct under NSS offload.
+      - name: Remove packet-steering service (NSS)
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd openwrt
+          for f in \
+            "package/network/config/netifd/files/etc/init.d/packet_steering" \
+            "package/network/config/netifd/files/usr/libexec/network/packet-steering.uc"; do
+            if [ -f "$f" ]; then
+              rm -f "$f"
+              echo "removed $f"
+            else
+              echo "$f already absent"
+            fi
+            test ! -f "$f" || { echo "::error:: $f still present"; exit 1; }
+          done
+
       - name: Patch cr8806 NAND ECC to 4-bit (trigsoft chain)
         run: |
           set -Eeuo pipefail
