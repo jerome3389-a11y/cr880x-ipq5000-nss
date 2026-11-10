@@ -289,31 +289,6 @@ jobs:
             exit 1
           fi
 
-      - name: Backport PHY fixes for the eth0 PHY-to-PHY link
-        run: |
-          set -Eeuo pipefail
-          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          cd openwrt
-          # The eth0 link is PHY-to-PHY with no cable (GE PHY to QCA8337
-          # PHY4). Two upstream fixes for exactly this link are not in
-          # 6.18.55: the at803x short-cable DAC values (FIELD_PREP, in
-          # 6.18.56-rc1) and the qca83xx resolved-status read after a
-          # SmartSpeed downshift (net-next only). Both were verified
-          # against the 6.18.55 sources before landing here. They are
-          # copied into patches-6.18, where the kernel build applies
-          # them; a bad patch fails the build, it cannot slip through.
-          KDIR="target/linux/qualcommax/patches-6.18"
-          for P in ../patches/kernel-6.18-backports/0976-net-phy-qcom-at803x-fix-IPQ5018-short-cable-DAC-values.patch ../patches/kernel-6.18-backports/0977-net-phy-qca83xx-read-resolved-QCA8337-link-status.patch; do
-            test -f "$P" || { echo "::error:: $P not found"; exit 1; }
-            B="$(basename "$P")"
-            if [ -e "$KDIR/$B" ]; then
-              echo "::error:: $KDIR/$B already exists (number collision?)"
-              exit 1
-            fi
-            cp "$P" "$KDIR/$B"
-          done
-          ls "$KDIR"/0976-net-phy-qcom-at803x-fix-IPQ5018-short-cable-DAC-values.patch "$KDIR"/0977-net-phy-qca83xx-read-resolved-QCA8337-link-status.patch
-
       - name: Pin feeds to proven commits
         run: |
           set -Eeuo pipefail
