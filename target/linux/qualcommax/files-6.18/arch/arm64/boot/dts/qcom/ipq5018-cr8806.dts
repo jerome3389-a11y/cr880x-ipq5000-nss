@@ -23,7 +23,7 @@
 #include <dt-bindings/thermal/thermal.h>
 
 / {
-	model = "Xiaomi CR8806 (M79)";
+	model = "Xiaomi CR8806 (M79A)";
 	compatible = "xiaomi,cr8806", "qcom,ipq5018";
 
 	reserved-memory {
