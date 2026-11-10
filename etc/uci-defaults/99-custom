@@ -38,17 +38,4 @@ uci set system.@system[0].zonename='Asia/Shanghai'
 uci set system.@system[0].clock_hourcycle='h23'
 uci commit system
 
-# --- Packet steering OFF (NSS requirement) ---
-# NSS offloads the data path to firmware; OpenWrt's packet-steering
-# service (packet-steering.uc) uses a host NAPI model that fights
-# firmware RPS and costs throughput (measured: 749-800 Mbit/s off vs
-# 619-626 on, with n2h_rx_queue drops). The nss-tools defaults
-# (98-nss-offload) set this to '0', but enforce it here too: the
-# service re-runs its .uc script on every interface event, and if the
-# setting is ever '1' the script does full RPS/XPS placement (9.7% CPU
-# observed). '0' makes the script write rps_cpus=0 and stay out of the
-# NSS data path.
-uci set network.globals.packet_steering='0'
-uci commit network
-
 exit 0
