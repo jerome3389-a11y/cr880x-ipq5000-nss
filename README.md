@@ -61,7 +61,7 @@
 - Firmware Version（LuCI 状态页）：重写为 `OpenWrt SNAPSHOT <修订号> https://github.com/jerome3389-a11y/cr880x-ipq5000-nss`——修订号是 snapshot 的版本号（钉住具体哪次 snapshot，别人按它找匹配的软件源；kmod 跟修订号绑定），项目地址告诉别人固件从哪来；原生的 "head branch"（detached HEAD 的噪音）已去掉
 - WAN MAC：DTS 里 wan 口用 `nvmem-cells` 取 ART@0 的工厂 MAC（24:CF:…），不继承 conduit eth1 的 MAC；不要用 UCI `macaddr` 改 DSA 口 MAC（改不了）
 - 完整版 wpad-mbedtls（与 basic 同为 mbedtls 后端，另含 WNM 与 MESH）；WPA3-SAE 可用
-- DNS：dnsmasq-full + adblock（规则源 anti_ad / adguard / yoyo / disconnect，列表首次开机联网后下载）；LAN 53 端口 DNS 劫持到路由器本机；dnsmasq 缓存 1000；无 SmartDNS
+- DNS：dnsmasq-full + adblock（规则源只有 anti_ad，中文过滤；adguard/yoyo/disconnect 已删，规则越小 dnsmasq 占内存越少；列表首次开机联网后下载）；LAN 53 端口 DNS 劫持到路由器本机；dnsmasq 缓存 1000；无 SmartDNS
 - 网络：DSA（lan / wan）、BBR（首次开机设为默认拥塞算法）
 - 工具：htop、zoneinfo-asia、luci-app-upnp、tcpdump-mini、iw（无线调试）、ca-bundle
 - 不包含：SmartDNS、ttyd、SFTP/SCP、bridge-mgr、Fullcone、cpufreq、arpbind（feed 里没有或已确认不适用；要加功能请重编译，见下）；USB、ext4、uboot-envtools、mac80211 debugfs 已删（本固件指定硬件，用不上；PPPoE、UPnP、SQM 保留，都是关键要的）
