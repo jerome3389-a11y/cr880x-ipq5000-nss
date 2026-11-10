@@ -200,6 +200,25 @@ jobs:
             echo "hzyitc/openwrt-redmi-ax3000 $HZY_COMMIT board-redmi_ax3000.ipq5018 board-redmi_ax3000.qcn6122" >> ../third-party-sources.txt
           fi
 
+      - name: Remove unused eth0 preinit hook (upstream a67d696c5d)
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd openwrt
+          # Upstream a67d696c5d (2026-11-07): port 5 is disabled, so
+          # eth0 (GMAC0) is completely unused and the preinit hook
+          # that brings it up (05_cr8806_eth0_up) is removed upstream.
+          # Delete it here so the pinned base (13e8bc91, pre-fix)
+          # matches upstream: no eth0 in preinit, no softirq storm.
+          HOOK="target/linux/qualcommax/ipq50xx/base-files/lib/preinit/05_cr8806_eth0_up"
+          if [ -f "$HOOK" ]; then
+            rm -f "$HOOK"
+            echo "removed $HOOK"
+          else
+            echo "$HOOK already absent (upstream already removed it)"
+          fi
+          test ! -f "$HOOK" || { echo "::error:: $HOOK still present"; exit 1; }
+
       - name: Patch cr8806 NAND ECC to 4-bit (trigsoft chain)
         run: |
           set -Eeuo pipefail
