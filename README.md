@@ -49,6 +49,7 @@
 | IGMP snooping | 支持 | 默认关闭 | — |
 | zram-swap | 支持 | 默认启用 | 已测试 |
 | CPU 温度（TSENS） | 支持 | 默认启用 | — |
+| NSS 状态页（luci-app-nss） | 支持 | 默认启用 | — |
 | LuCI HTTPS | 不支持 | 已关闭（仅 HTTP） | — |
 
 - 802.11v 靠 `bss_transition` + `wnm_sleep_mode` 开启；本底包的 ap.uc 不读 `ieee80211v`，不要用它（否则 v 不生效）；WNM Sleep Mode 已开（客户端休眠、AP 缓存流量，省电）
