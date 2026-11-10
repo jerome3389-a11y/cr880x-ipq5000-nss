@@ -246,46 +246,6 @@ jobs:
             exit 1
           fi
 
-      - name: Patch cr8806 WAN conduit to eth0 (DSA MAC fix)
-        run: |
-          set -Eeuo pipefail
-          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          cd openwrt
-          # DSA MAC diagnosis (2026-11-09): the kuncy7 base tree's
-          # 02_network assigns the cr8806 WAN port to the wrong conduit
-          # (eth1 instead of eth0), so every DSA user port inherits
-          # eth1's MAC and the factory WAN MAC (ART offset 0) is unused.
-          # The same file's cudy,p5 block (same IPQ5018 + QCA8337) does
-          # it right: wan -> eth0, lan1-3 -> eth1. The fix belongs
-          # upstream (one line); this step is the repo-side stopgap.
-          # IDEMPOTENT: the sed range covers only the xiaomi,cr8806
-          # case block, and only matches the buggy line. Once upstream
-          # fixes it, the pattern no longer matches and the step becomes
-          # a no-op (no drift: no whole-file override). (M81 has no
-          # case in 02_network, so it is untouched.)
-          NET="target/linux/qualcommax/ipq50xx/base-files/etc/board.d/02_network"
-          test -f "$NET" || { echo "::error:: $NET not found"; exit 1; }
-          sed -i '/^[[:space:]]*xiaomi,cr8806)/,/^[[:space:]]*;;/ s/ucidef_set_network_device_conduit "wan" "eth1"/ucidef_set_network_device_conduit "wan" "eth0"/' "$NET"
-          echo "--- after patch ---"
-          sed -n '/^[[:space:]]*xiaomi,cr8806)/,/^[[:space:]]*;;/p' "$NET"
-          # Fail closed: the cr8806 block must now carry wan -> eth0
-          # exactly once, and wan -> eth1 must be gone from that block.
-          if [ "$(sed -n '/^[[:space:]]*xiaomi,cr8806)/,/^[[:space:]]*;;/p' "$NET" | grep -c 'ucidef_set_network_device_conduit "wan" "eth0"')" -ne 1 ]; then
-            echo "::error:: expected exactly one wan -> eth0 in the cr8806 block"
-            exit 1
-          fi
-          if sed -n '/^[[:space:]]*xiaomi,cr8806)/,/^[[:space:]]*;;/p' "$NET" | grep -q 'ucidef_set_network_device_conduit "wan" "eth1"'; then
-            echo "::error:: wan -> eth1 still present in the cr8806 block"
-            exit 1
-          fi
-          # Guard: no other board's conduit was touched. The file has
-          # exactly two wan -> eth0 lines after the patch (cudy,p5 and
-          # cr8806); anything else means the range leaked.
-          if [ "$(grep -c 'ucidef_set_network_device_conduit "wan" "eth0"' "$NET")" -ne 2 ]; then
-            echo "::error:: expected exactly two wan -> eth0 lines in $NET"
-            exit 1
-          fi
-
       - name: Pin feeds to proven commits
         run: |
           set -Eeuo pipefail
