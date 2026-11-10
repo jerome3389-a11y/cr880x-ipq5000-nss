@@ -38,4 +38,15 @@ uci set system.@system[0].zonename='Asia/Shanghai'
 uci set system.@system[0].clock_hourcycle='h23'
 uci commit system
 
+# --- LuCI HTTP only (no HTTPS) ---
+# uhttpd listens on 80 + 443 by default (self-signed cert, browser
+# warning on every login). This firmware does not need HTTPS for LuCI:
+# LAN is trusted, router is not exposed to WAN. Delete the HTTPS
+# listeners so uhttpd only serves HTTP. The TLS library itself stays
+# (opkg/adblock/wget need it for HTTPS downloads); only the LuCI
+# HTTPS listener is removed. uhttpd reads the config when it starts,
+# after uci-defaults, so this takes effect on first boot.
+uci delete uhttpd.main.listen_https 2>/dev/null
+uci commit uhttpd
+
 exit 0
