@@ -794,6 +794,36 @@ jobs:
           echo "RELEASE_TAG=${HW}-${KERNEL}-${{ inputs.firmware }}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
           echo "RELEASE_NAME=${HW} NSS FW ${{ inputs.firmware }} - Kernel ${KERNEL} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
 
+      # Release changelog (Update): list the repo commits since the
+      # previous release, so each release shows what changed in this
+      # build. The scaffold repo is checked out (with full history),
+      # so git log works. If there is no previous release (first
+      # build), list the last 10 commits instead. The changelog is
+      # written to RELEASE_CHANGELOG via a heredoc so the multi-line
+      # value survives into the release body below.
+      - name: Generate release changelog
+        if: success()
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd "$GITHUB_WORKSPACE"
+          PREV_TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
+          if [ -n "$PREV_TAG" ] && git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
+            CHANGELOG="$(git log "$PREV_TAG"..HEAD --pretty=format:'- %s (%h)' --no-merges)"
+          else
+            CHANGELOG="$(git log -10 --pretty=format:'- %s (%h)' --no-merges)"
+          fi
+          [ -n "$CHANGELOG" ] || CHANGELOG="- (no changes recorded)"
+          {
+            echo "RELEASE_CHANGELOG<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          echo "=== RELEASE CHANGELOG ==="
+          echo "$CHANGELOG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create draft release
         if: success()
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd  # v1
@@ -810,6 +840,9 @@ jobs:
             - Device profile: ${{ matrix.device }}
             - Supported models: ${{ env.SUPPORTED_MODELS }}
             - Base tree: kuncy7/openwrt-nss-edma, branch c3po-tag-8021q, commit ${{ inputs.base_ref }}
+
+            ## Update (changes in this build)
+            ${{ env.RELEASE_CHANGELOG }}
 
             Flash: trigsoft web UI (192.168.10.1) → factory.ubi. sysupgrade is unusable on this device (no platform upgrade script).
 

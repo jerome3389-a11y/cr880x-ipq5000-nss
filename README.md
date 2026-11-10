@@ -28,6 +28,7 @@
 - 已在 CR8808（A版 M79）上机验证：NSS 核心启动、有线平面转发零丢包、ECM 已加速 TCP 流、WiFi 测速时 CPU 几乎不变（双频 WiFi 走 NSS 路径）
 - 内核 flow offloading（flowtable）必须保持关闭：NSS ECM 是 offload 路径，两者不能同时开
 - bridge-mgr 不在 ipq50xx 上（仅 ipq807x/ipq60xx 的 PPE 栈有），未包含
+- 交换机 port 5 必须禁用（上流 a67d696c5d，2026-11-07）：QCA8337 的 port 5（GMAC0/eth0）不是合法 CPU 口（qca8k 只认 0/6），使能它会让交换机把 WAN 帧洪泛到 GMAC0，CPU 被丢包 softirq 淹没，下载只剩几 Mbps。本项目 DTS 已禁 port 5，eth0 的 preinit 钩子也已删；WAN 与 LAN 123 全部走单一 conduit eth1（GMAC1/port 0），NSS 只加速这一条
 
 ## 固件特性
 
@@ -49,6 +50,8 @@
 - 802.11v 靠 `bss_transition` + `wnm_sleep_mode` 开启；本底包的 ap.uc 不读 `ieee80211v`，不要用它（否则 v 不生效）
 - 802.11s：完整版 wpad 带 Mesh 能力，LuCI 里可选 Mesh 模式，但默认不配 Mesh 接口、未上机测过
 - 无线硬件：IPQ5018（2.4G）+ QCN6122（5G），ath11k，双频 WiFi 6（802.11ax）
+- WiFi 预设（首次开机 late init 脚本）：SSID OpenWrt / OpenWrt_5G，WPA2 密码 12345678，信道 auto，2.4G HE20，5G HE160，802.11k/v 开，地区码 CN（5G 无地区码启动不了；CN 的 2.4G 上限 20 dBm、5G 36-64 上限 20 dBm，AU/US 上限更高但须合规使用）
+- WAN MAC：DTS 里 wan 口用 `nvmem-cells` 取 ART@0 的工厂 MAC（24:CF:…），不继承 conduit eth1 的 MAC；不要用 UCI `macaddr` 改 DSA 口 MAC（改不了）
 - 完整版 wpad-mbedtls（与 basic 同为 mbedtls 后端，另含 WNM 与 MESH）；WPA3-SAE 可用
 - DNS：dnsmasq-full + adblock（规则源 anti_ad / adguard / yoyo / disconnect，列表首次开机联网后下载）；LAN 53 端口 DNS 劫持到路由器本机；dnsmasq 缓存 1000；无 SmartDNS
 - 网络：DSA（lan / wan）、BBR（首次开机设为默认拥塞算法）
@@ -115,6 +118,7 @@ LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `p
 | `base_ref` | 底包提交 | `13e8bc914709c4794b3ec7b0421d2038386e697e` |
 
 - 每次成功编译发一个独立 Release（tag `主板版本-内核-NSS-运行号-尝试号`，如 `M79A-6.18-12.5-21-1`）：先发 draft，验远端摘要通过后再发布，坏版永不公开；release 里只有固件（`factory.ubi`）；buildinfo、完整 `.config`、校验文件与第三方来源清单只作 workflow 诊断产物，不进 release
+- 每个 Release 正文里有 “Update” 一节，列出自上个 Release 以来的仓库提交（自动生成），即本次构建改了什么
 - 缓存：ccache 按工具链 + 编译器键入，staging / dl 按配置哈希键入；旧缓存与旧工作流自动清理（工作流保留 2 天，Release 不受影响）
 - 要加功能请重编译：本项目不提供自建 kmod 仓库；kmod 包带内核 vermagic，只能装在同一编译的内核上
 
