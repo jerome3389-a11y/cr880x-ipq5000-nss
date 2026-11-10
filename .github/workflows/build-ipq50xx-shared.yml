@@ -205,17 +205,14 @@ jobs:
           set -Eeuo pipefail
           trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd openwrt
-          # The kuncy7 base DTS forces 8-bit NAND ECC (correct for
-          # a stock-U-Boot chain). This device uses the trigsoft
-          # chain, whose U-Boot reads/writes NAND with 4-bit
-          # compatible ECC, so the repo keeps 4-bit to match it
-          # (HZYITC 5.4 and ImmortalWrt are both 4-bit and both
-          # boot via trigsoft web flash). ECC was excluded as the
-          # cause of the #6/#7 bricks: #6 (8-bit) and #7 (ECC 8->4)
-          # both failed to boot; the root cause was MTD partition
-          # discovery (qcom,smem-part on the trigsoft merged SMEM
-          # table), fixed in #8 by fixed-partitions. 4-bit is
-          # unconfirmed but retained.
+          # Build #6 diagnosis (2026-11-03): the kuncy7 base DTS forces
+          # 8-bit NAND ECC, which is correct for a stock-U-Boot chain
+          # but wrong for the trigsoft chain on this device: trigsoft's
+          # modified U-Boot reads/writes NAND with 4-bit-compatible
+          # ECC, so an 8-bit kernel cannot decode trigsoft-written
+          # pages (UBI attach fails, no boot). HZYITC 5.4 (4-bit) and
+          # ImmortalWrt (default = 4-bit) both boot via trigsoft web
+          # flash; Build #6 (8-bit) was the only failure.
           # Build #8 (SMEM_PART.md §6.1): the cr8806 DTS is now a
           # repo-side override (dts/ipq5018-cr8806.dts) that the
           # "Install custom devices" step already copied over the base

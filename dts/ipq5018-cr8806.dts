@@ -421,8 +421,6 @@
 				reg = <4>;
 				label = "wan";
 				phy-handle = <&qca8337_3>;
-				nvmem-cells = <&macaddr_art_0 0>;
-				nvmem-cell-names = "mac-address";
 			};
 
 			ethernet-port@5 {
