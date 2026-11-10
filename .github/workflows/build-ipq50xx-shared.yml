@@ -289,45 +289,6 @@ jobs:
             exit 1
           fi
 
-      - name: Apply NSS DSA split patches (keep board.d wan on eth0)
-        run: |
-          set -Eeuo pipefail
-          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          cd openwrt
-          # Traffic-path change (2026-11-09): the board.d split (wan on
-          # eth0, lan1-3 on eth1) is the real topology, but the base
-          # tree's first-boot defaults rewrite wan back to eth1 (majority
-          # vote), arm only the majority conduit in fw_mask, and switch
-          # only that conduit to the qca-8021q tagger. These repo patches
-          # keep the split instead: the defaults exempt cr8806/cr8808,
-          # fw_mask arms every conduit with user ports, and the tag
-          # switch covers every conduit with user ports. Fail closed if
-          # upstream moved: --fuzz=0, then grep guards on the markers.
-          command -v patch >/dev/null || { echo "::error:: patch not found"; exit 1; }
-          for P in ../patches/nss-dsa-split/01-nss-dwmac-defaults-keep-split.patch ../patches/nss-dsa-split/02a-nss-dsa-fw-mask.patch ../patches/nss-dsa-split/03-nss-dwmac-init-tag-all-conduits.patch ../patches/nss-dsa-split/04-preinit-eth0-up-comment.patch; do
-            test -f "$P" || { echo "::error:: $P not found"; exit 1; }
-            patch --dry-run -p1 --fuzz=0 < "$P" || { echo "::error:: $P does not apply cleanly"; exit 1; }
-            patch -p1 --fuzz=0 < "$P"
-          done
-          # Markers: each patched file must carry its new text, and the
-          # old single-conduit assumptions must be gone.
-          grep -q 'keeping the board.d split' package/nss/nss-tools/files/nss-dwmac.defaults || { echo "::error:: defaults patch marker missing"; exit 1; }
-          grep -q 'Count the user ports DSA hangs off this conduit' package/nss/nss-tools/files/functions.sh || { echo "::error:: fw_mask patch marker missing"; exit 1; }
-          grep -q 'every conduit with user ports and any WAN PHY' package/nss/nss-tools/files/nss-dwmac-up || { echo "::error:: nss-dwmac-up patch marker missing"; exit 1; }
-          grep -q 'needs both links in plain 802.1Q' package/nss/nss-tools/files/nss-dwmac.init || { echo "::error:: init patch marker missing"; exit 1; }
-          grep -q 'The WAN port is on eth0 here' target/linux/qualcommax/ipq50xx/base-files/lib/preinit/05_cr8806_eth0_up || { echo "::error:: preinit patch marker missing"; exit 1; }
-          if grep -q '\[ "$n" = "$NSS_CONDUIT" \] || continue' package/nss/nss-tools/files/functions.sh; then
-            echo "::error:: old single-conduit skip still present in functions.sh"
-            exit 1
-          fi
-          if grep -q 'those ports stay on the host path' package/nss/nss-tools/files/nss-dwmac.init; then
-            echo "::error:: old single-conduit warning still present in nss-dwmac.init"
-            exit 1
-          fi
-          for F in package/nss/nss-tools/files/nss-dwmac.defaults package/nss/nss-tools/files/functions.sh package/nss/nss-tools/files/nss-dwmac-up package/nss/nss-tools/files/nss-dwmac.init target/linux/qualcommax/ipq50xx/base-files/lib/preinit/05_cr8806_eth0_up; do
-            sh -n "$F" || { echo "::error:: sh -n failed on $F"; exit 1; }
-          done
-
       - name: Backport PHY fixes for the eth0 PHY-to-PHY link
         run: |
           set -Eeuo pipefail
