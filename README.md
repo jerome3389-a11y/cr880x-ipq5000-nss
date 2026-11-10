@@ -25,10 +25,12 @@
 
 - 全平面 NSS：qca-nss-drv + qca-nss-ecm、NSS 固件加载、dwmac NSS、ath11k NSS（wifili）、DSA NSS、QCA8337、PPPoE、VLAN、IPv6、虚拟接口
 - NSS 内存档：LOW（默认）
-- 已在 CR8808（A版 M79）上机验证：NSS 核心启动、有线平面转发零丢包、ECM 已加速 TCP 流、WiFi 测速时 CPU 几乎不变（双频 WiFi 走 NSS 路径）
+- 已在 CR8808（M79A）上机验证：NSS 核心启动、有线平面转发零丢包、ECM 已加速 TCP 流、WiFi 测速时 CPU 几乎不变（双频 WiFi 走 NSS 路径）
 - 内核 flow offloading（flowtable）必须保持关闭：NSS ECM 是 offload 路径，两者不能同时开
 - bridge-mgr 不在 ipq50xx 上（仅 ipq807x/ipq60xx 的 PPE 栈有），未包含
 - 交换机 port 5 必须禁用（上流 a67d696c5d，2026-11-07）：QCA8337 的 port 5（GMAC0/eth0）不是合法 CPU 口（qca8k 只认 0/6），使能它会让交换机把 WAN 帧洪泛到 GMAC0，CPU 被丢包 softirq 淹没，下载只剩几 Mbps。本项目 DTS 已禁 port 5，eth0 的 preinit 钩子也已删；WAN 与 LAN 123 全部走单一 conduit eth1（GMAC1/port 0），NSS 只加速这一条
+- packet steering 服务已删：NSS 下该服务（netifd 的 packet_steering）会拖慢转发（实测关掉后 749/800 Mbit/s，开着 619/626 Mbit/s 且有 n2h 丢包），且每次 interface 事件都重跑脚本；构建时直接从底包删掉该服务，RPS 保持内核默认
+- CPU 温度：DTS 已加 IPQ5018 TSENS（thermal-sensor@4a9000，上游 2025 年补丁）+ thermal-zones（cpu/gephy/top-glue/ubi32，临界 120°C，cpu 100°C 被动降频），LuCI 状态页显示 CPU 温度；内核已有 CONFIG_QCOM_TSENS=y
 
 ## 固件特性
 
@@ -46,17 +48,23 @@
 | 内核流量分载（flow offloading） | 支持 | 默认关闭 | — |
 | IGMP snooping | 支持 | 默认关闭 | — |
 | zram-swap | 支持 | 默认启用 | 已测试 |
+| CPU 温度（TSENS） | 支持 | 默认启用 | — |
+| LuCI HTTPS | 不支持 | 已关闭（仅 HTTP） | — |
 
-- 802.11v 靠 `bss_transition` + `wnm_sleep_mode` 开启；本底包的 ap.uc 不读 `ieee80211v`，不要用它（否则 v 不生效）
+- 802.11v 靠 `bss_transition` + `wnm_sleep_mode` 开启；本底包的 ap.uc 不读 `ieee80211v`，不要用它（否则 v 不生效）；WNM Sleep Mode 已开（客户端休眠、AP 缓存流量，省电）
+- Multicast to unicast 已开：组播帧默认 6M 无 ACK，转单播后正常速率有 ACK（mDNS/AirPlay/发现类流量受益）
+- LuCI 只走 HTTP：uhttpd 的 443 监听已关（自签名证书每次登录都弹警告）；TLS 库保留（opkg/adblock 还要用）；局域网可信、路由器不对外，HTTP 够用
 - 802.11s：完整版 wpad 带 Mesh 能力，LuCI 里可选 Mesh 模式，但默认不配 Mesh 接口、未上机测过
 - 无线硬件：IPQ5018（2.4G）+ QCN6122（5G），ath11k，双频 WiFi 6（802.11ax）
-- WiFi 预设（首次开机 late init 脚本）：SSID OpenWrt / OpenWrt_5G，WPA2 密码 12345678，信道 auto，2.4G HE20，5G HE160，802.11k/v 开，地区码 CN（5G 无地区码启动不了；CN 的 2.4G 上限 20 dBm、5G 36-64 上限 20 dBm，AU/US 上限更高但须合规使用）
+- WiFi 预设（首次开机 late init 脚本）：SSID OpenWrt / OpenWrt_5G，WPA2 密码 12345678，信道 auto，2.4G HE20，5G HE160，802.11k/v 开（bss_transition + wnm_sleep_mode，见上），multicast to unicast 开，地区码 CN（5G 无地区码启动不了；CN 的 2.4G 上限 20 dBm、5G 36-64 上限 20 dBm，AU/US 上限更高但须合规使用）
+- 系统时间：时区 CST-8/Asia/Shanghai，LuCI 时间格式 24 小时（clock_hourcycle h23）
+- Firmware Version（LuCI 状态页）：重写为 `OpenWrt SNAPSHOT <修订号> https://github.com/jerome3389-a11y/cr880x-ipq5000-nss`——修订号是 snapshot 的版本号（钉住具体哪次 snapshot，别人按它找匹配的软件源；kmod 跟修订号绑定），项目地址告诉别人固件从哪来；原生的 "head branch"（detached HEAD 的噪音）已去掉
 - WAN MAC：DTS 里 wan 口用 `nvmem-cells` 取 ART@0 的工厂 MAC（24:CF:…），不继承 conduit eth1 的 MAC；不要用 UCI `macaddr` 改 DSA 口 MAC（改不了）
 - 完整版 wpad-mbedtls（与 basic 同为 mbedtls 后端，另含 WNM 与 MESH）；WPA3-SAE 可用
 - DNS：dnsmasq-full + adblock（规则源 anti_ad / adguard / yoyo / disconnect，列表首次开机联网后下载）；LAN 53 端口 DNS 劫持到路由器本机；dnsmasq 缓存 1000；无 SmartDNS
 - 网络：DSA（lan / wan）、BBR（首次开机设为默认拥塞算法）
 - 工具：htop、zoneinfo-asia、luci-app-upnp、tcpdump-mini、iw（无线调试）、ca-bundle
-- 不包含：SmartDNS、ttyd、SFTP/SCP、bridge-mgr、Fullcone、cpufreq、arpbind（feed 里没有或已确认不适用；要加功能请重编译，见下）
+- 不包含：SmartDNS、ttyd、SFTP/SCP、bridge-mgr、Fullcone、cpufreq、arpbind（feed 里没有或已确认不适用；要加功能请重编译，见下）；USB、ext4、uboot-envtools、mac80211 debugfs 已删（本固件指定硬件，用不上；PPPoE、UPnP、SQM 保留，都是关键要的）
 - 设备适配：merged 分区 fixed-partitions（单 rootfs 116.5 MiB）、trigsoft 链 4-bit NAND ECC、ART caldata（`0:ART`，脚本按大小写精确匹配）
 - 编译优化：`-O3` + Cortex-A53 crypto 指令集、LTO 开启
 - 内存：256 MiB 物理内存，Linux 可见约 170 MiB；大规则源（adblock XL/XXL/VAR）默认关闭，别贪大
@@ -76,13 +84,13 @@ LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `p
 
 | 固件（主板版本） | 支持的设备 | 芯片 | 状态 |
 |---|---|---|---|
-| **M79A** | CR8806 / CR8808 / CR8809（A版 M79，共用同一固件） | IPQ5000 + QCA8337；2.4G FEM MXD7223（无 PA）；5G QCN6122 + RTC66568 | 已在 CR8808（A版 M79）上机验证 |
+| **M79A** | CR8806 / CR8808 / CR8809（M79A，共用同一固件） | IPQ5000 + QCA8337；2.4G FEM MXD7223（无 PA）；5G QCN6122 + RTC66568 | 已在 CR8808（M79A）上机验证 |
 | **M81** | CR8808（A版 M81）、Redmi AX3000（与 M81 同硬件）、Xiaomi AX3000（与 M81 同硬件） | IPQ5000 + QCA8337；2.4G FEM CTR66266；5G QCN6122 + RTC66568 | 均未上机验证 |
 | — | CR881x（B版）及其他所有型号 | IPQ5018 + YT9215S；5G QCN6122；FEM 未确认 | 不支持，刷错变砖 |
 
 （内部 profile 代号：M79A 对应 `xiaomi_cr8806`，M81 对应 `xiaomi_cr8808`——仅内部使用，不作对外标签。）
 
-认板看主板版号 + 板型，不要只看型号：CR8808 有 M79 和 M81 两种主板；A版与 B版交换芯片不同，固件不通用。
+认板看主板版号 + 板型，不要只看型号：CR8808 有 M79A 和 M81 两种主板；A版与 B版交换芯片不同，固件不通用。
 
 ## 刷机与首次开机
 
@@ -105,7 +113,7 @@ LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `p
 
 - 刷机规则：走 trigsoft web UI（192.168.10.1）刷 `factory.ubi`——原厂、合并都能刷，刷完都能启动（刷完一定是合并表）。
 - 别走：原厂 recovery、手动 mtd 写到 36M 的 rootfs 槽、sysupgrade（sysupgrade 本来就不可用）——那些路子不改表，刷完还是原厂表，内核起不来。
-- M81 分区与 M79 相同，规则一样。
+- M81 分区与 M79A 相同，规则一样。
 
 ## 编译
 
@@ -139,7 +147,7 @@ LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `p
 - ART 分区名大小写敏感：caldata 脚本按 `/proc/mtd` 精确匹配，`0:ART` 与 `0:art` 写错一个字母就没 WiFi；移植前先看自己板子的 `/proc/mtd`
 - trigsoft 链 NAND ECC 用 4-bit；8-bit 会导致 trigsoft 写过的页无法解码（UBI 挂不上）
 - 分区布局：合并分区用 fixed-partitions（smem-part 在 trigsoft 合并表上会失败）；原厂布局用 smem-part；两者不要混用
-- M79 的 2.4G 没有 PA（MXD7223 只有 LNA + 收发切换）：2.4G 弱是硬件，改配置修不好；M81（CTR66266）才有正常 2.4G
+- M79A 的 2.4G 没有 PA（MXD7223 只有 LNA + 收发切换）：2.4G 弱是硬件，改配置修不好；M81（CTR66266）才有正常 2.4G
 - B版（YT9215S）在 NSS 树里没有 Linux 驱动，不要把 A版固件往 B版上刷
 - NSS 固件是专有二进制 blob，不是开源软件；不要把它说成开源，也不要把它直接塞进仓库（编译时由 feed 链路获取）
 - 各设备的 caldata 来自设备自己的 ART 分区，不要拷别的板子的 caldata
@@ -156,7 +164,7 @@ LuCI 密码页用户名默认 root，填新密码 + 确认 + 保存；或 SSH `p
 
 ![系统信息](docs/screenshots/system.jpg)
 
-系统信息：Xiaomi CR8806 (M79)，OpenWrt SNAPSHOT，内核 6.18.55
+系统信息：Xiaomi CR8806 (M79A)，OpenWrt SNAPSHOT，内核 6.18.55
 
 ![内存状态](docs/screenshots/memory.jpg)
 
