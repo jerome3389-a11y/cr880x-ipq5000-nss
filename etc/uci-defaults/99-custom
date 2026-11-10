@@ -50,14 +50,17 @@ uci delete uhttpd.main.listen_https 2>/dev/null
 uci commit uhttpd
 
 # --- Firmware Version (LuCI status page) ---
-# Append the project address to DISTRIB_DESCRIPTION. The OpenWrt
-# version/revision stays (so others can find the matching package
-# feeds: this is a SNAPSHOT build, feeds are snapshots/packages),
-# and the project URL tells them where the firmware comes from.
-# /etc/openwrt_release is in squashfs; sed -i creates an overlay
-# copy, which is how uci-defaults normally edits /etc files.
+# Rewrite DISTRIB_DESCRIPTION cleanly. The stock description contains
+# "head branch" (the build checks out a detached HEAD, so git reports
+# the branch as head) — that is noise, not version info. Replace the
+# whole line with: OpenWrt version + project address. The version
+# stays (SNAPSHOT build, so others can find the matching snapshots
+# package feeds); the project URL tells them where the firmware comes
+# from. DISTRIB_REVISION (the base-tree commit) is a separate field
+# and is untouched. /etc/openwrt_release is in squashfs; sed -i
+# creates an overlay copy.
 if grep -q '^DISTRIB_DESCRIPTION=' /etc/openwrt_release 2>/dev/null; then
-	sed -i "s|^DISTRIB_DESCRIPTION='\(.*\)'|DISTRIB_DESCRIPTION='\1 https://github.com/jerome3389-a11y/cr880x-ipq5000-nss'|" /etc/openwrt_release
+	sed -i "s|^DISTRIB_DESCRIPTION='.*'|DISTRIB_DESCRIPTION='OpenWrt SNAPSHOT https://github.com/jerome3389-a11y/cr880x-ipq5000-nss'|" /etc/openwrt_release
 fi
 
 exit 0
