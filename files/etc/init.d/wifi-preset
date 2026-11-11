@@ -15,7 +15,7 @@
 # the flag is gone and it runs again on the next first boot.
 #
 # Preset (user 2026-11-10): SSID OpenWrt / OpenWrt_5G, psk2, key
-# 12345678, 5G: AU, channel auto, HE160; 2G: driver default, HE20; 802.11k/v on.
+# 12345678, 5G: CN (driver default), channel auto, HE160; 2G: driver default, HE20; 802.11k/v on.
 # Set by radio name only (radio0 = 2G, radio1 = 5G). No paths are
 # written: the device paths come from the image's own wireless defaults,
 # so a wrong baked path (the JDCloud #4 failure: extra 'libwrt' network,
@@ -72,7 +72,6 @@ start() {
 	uci set wireless.default_radio0.wnm_sleep_mode='1'
 	uci set wireless.default_radio0.disabled='0'
 	uci set wireless.radio1.band='5g'
-	uci set wireless.radio1.country='AU'
 	uci set wireless.radio1.channel='auto'
 	uci set wireless.radio1.htmode='HE160'
 	uci set wireless.radio1.cell_density='0'
