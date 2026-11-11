@@ -33,6 +33,40 @@
 # --- Timezone ---
 uci set system.@system[0].timezone='CST-8'
 uci set system.@system[0].zonename='Asia/Shanghai'
+# 24-hour clock in LuCI (Time Format, below the timezone setting):
+# clock_hourcycle 'h23' ('' = Default, 'h12' = 12-hour, 'h23' = 24-hour).
+uci set system.@system[0].clock_hourcycle='h23'
 uci commit system
+
+# --- LuCI HTTP only (no HTTPS) ---
+# uhttpd listens on 80 + 443 by default (self-signed cert, browser
+# warning on every login). This firmware does not need HTTPS for LuCI:
+# LAN is trusted, router is not exposed to WAN. Delete the HTTPS
+# listeners so uhttpd only serves HTTP. The TLS library itself stays
+# (opkg/adblock/wget need it for HTTPS downloads); only the LuCI
+# HTTPS listener is removed. uhttpd reads the config when it starts,
+# after uci-defaults, so this takes effect on first boot.
+uci delete uhttpd.main.listen_https 2>/dev/null
+uci commit uhttpd
+
+# --- Firmware Version (LuCI status page) ---
+# Rewrite DISTRIB_DESCRIPTION cleanly. The stock description contains
+# "head branch" (the build checks out a detached HEAD, so git reports
+# the branch as head) — that is noise, not version info. Replace the
+# whole line with: OpenWrt version + snapshot revision + project
+# address. The revision (DISTRIB_REVISION, e.g. r28478-abc123) is the
+# snapshot's version number: it pins the exact snapshot, so others
+# can find the matching package feeds (kmods especially are tied to
+# the exact revision). DISTRIB_REVISION itself is a separate field and
+# is untouched. /etc/openwrt_release is in squashfs; sed -i creates
+# an overlay copy.
+if grep -q '^DISTRIB_DESCRIPTION=' /etc/openwrt_release 2>/dev/null; then
+	REV=$(grep '^DISTRIB_REVISION=' /etc/openwrt_release 2>/dev/null | cut -d"'" -f2)
+	if [ -n "$REV" ]; then
+		sed -i "s|^DISTRIB_DESCRIPTION='.*'|DISTRIB_DESCRIPTION='OpenWrt SNAPSHOT $REV https://github.com/jerome3389-a11y/cr880x-ipq5000-nss'|" /etc/openwrt_release
+	else
+		sed -i "s|^DISTRIB_DESCRIPTION='.*'|DISTRIB_DESCRIPTION='OpenWrt SNAPSHOT https://github.com/jerome3389-a11y/cr880x-ipq5000-nss'|" /etc/openwrt_release
+	fi
+fi
 
 exit 0

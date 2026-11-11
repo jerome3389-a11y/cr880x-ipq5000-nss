@@ -57,6 +57,20 @@ start() {
 	uci set wireless.default_radio0.key='12345678'
 	uci set wireless.default_radio0.ieee80211k='1'
 	uci set wireless.default_radio0.ieee80211v='1'
+	# Multicast to unicast: multicast frames go at the lowest basic
+	# rate (6M) with no ACK; converting to unicast sends them at
+	# normal rates with ACKs (better for mDNS/AirPlay/discovery).
+	# Home AP with a few clients: clear win, negligible cost.
+	uci set wireless.default_radio0.multicast_to_unicast='1'
+	# 802.11v actually needs bss_transition + wnm_sleep_mode: this
+	# base's ap.uc does NOT read config.ieee80211v (verified in
+	# ap.uc:189 — it only appends bss_transition/wnm_sleep_mode to
+	# hostapd.conf). ieee80211v='1' is kept for LuCI display, but
+	# without these two lines BSS transition and WNM Sleep Mode are
+	# silently off. wnm_sleep_mode lets clients sleep with traffic
+	# buffered at the AP (battery saving, 802.11v WNM).
+	uci set wireless.default_radio0.bss_transition='1'
+	uci set wireless.default_radio0.wnm_sleep_mode='1'
 	uci set wireless.default_radio0.disabled='0'
 	uci set wireless.radio1.band='5g'
 	uci set wireless.radio1.country='CN'
@@ -69,6 +83,12 @@ start() {
 	uci set wireless.default_radio1.key='12345678'
 	uci set wireless.default_radio1.ieee80211k='1'
 	uci set wireless.default_radio1.ieee80211v='1'
+	# See radio0: multicast to unicast.
+	uci set wireless.default_radio1.multicast_to_unicast='1'
+	# See radio0: ap.uc ignores ieee80211v; bss_transition +
+	# wnm_sleep_mode are what actually enable 802.11v in hostapd.
+	uci set wireless.default_radio1.bss_transition='1'
+	uci set wireless.default_radio1.wnm_sleep_mode='1'
 	uci set wireless.default_radio1.disabled='0'
 	uci commit wireless || return 0
 	# Only record the preset as done if the reload actually applies
