@@ -443,6 +443,29 @@ jobs:
           ./scripts/feeds list -r nss | grep -q qca-nss-drv && echo "nss feed OK"
           echo "=== FEEDS OK ==="
 
+      # CN 160 MHz (wireless-regdb): the stock regdb caps CN 5 GHz at
+      # 80 MHz (5150-5250 @ 80, 5250-5350 @ 80 DFS) with NO-160MHZ, so
+      # HE160 can never start on CN — the radio falls back to HT40
+      # (150 Mbps). 5.4 firmware (hzyitc) runs HE160 because it patches
+      # the regdb; ImmortalWrt carries the same patch
+      # (520-cn-all-30dbm.patch). This step copies the repo's patch
+      # into the base tree's wireless-regdb patches dir so the build
+      # applies it to db.txt: CN 5150-5350 merged to @ 160, DFS kept
+      # (5250-5350 is DFS), NO-OUTDOOR kept. If the patch does not
+      # apply (regdb updated upstream), fail here — do not ship an
+      # image that silently lacks 160 MHz.
+      - name: Patch wireless-regdb for CN 160 MHz
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd openwrt
+          PATCH_DIR="package/firmware/wireless-regdb/patches"
+          test -d "$PATCH_DIR" || { echo "::error:: $PATCH_DIR not found"; exit 1; }
+          test -f ../patches/520-cn-160mhz.patch || { echo "::error:: repo patches/520-cn-160mhz.patch not found"; exit 1; }
+          cp ../patches/520-cn-160mhz.patch "$PATCH_DIR/"
+          echo "=== CN 160MHz REGDB PATCH INSTALLED ==="
+          ls -l "$PATCH_DIR/520-cn-160mhz.patch"
+
       - name: Fetch extra packages
         run: |
           set -Eeuo pipefail
