@@ -1,0 +1,32 @@
+#!/bin/sh /etc/rc.common
+# Keep multicast-to-unicast + 802.11v options on (LuCI drops them on Save).
+#
+# Why: LuCI rewrites the whole wireless config on Save, and it drops
+# UCI options that aren't checked in its form. multicast_to_unicast
+# defaults to unchecked, bss_transition/wnm_sleep_mode have NO LuCI
+# field at all. So any LuCI WiFi edit silently turns them off, even
+# on the radio you didn't touch. The one-shot wifi-preset only runs
+# on first boot, so it can't restore them.
+#
+# This service runs on every boot (START=99, after wifi-preset) and
+# re-applies ONLY these three options per interface, if missing or
+# off. It never touches SSID, password, channel, htmode, country,
+# or anything else you set in LuCI. If nothing changed, it exits
+# without reloading wifi.
+
+START=99
+
+start() {
+	_changed=0
+	for _iface in default_radio0 default_radio1; do
+		uci -q get "wireless.$_iface" >/dev/null 2>&1 || continue
+		for _opt in multicast_to_unicast bss_transition wnm_sleep_mode; do
+			[ "$(uci -q get "wireless.$_iface.$_opt")" = "1" ] && continue
+			uci set "wireless.$_iface.$_opt='1'"
+			_changed=1
+		done
+	done
+	[ "$_changed" = "1" ] || return 0
+	uci commit wireless || return 0
+	wifi reload
+}
