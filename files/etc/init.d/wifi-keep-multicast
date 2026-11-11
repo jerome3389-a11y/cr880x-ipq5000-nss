@@ -2,11 +2,15 @@
 # Keep multicast-to-unicast + 802.11v options on (LuCI drops them on Save).
 #
 # Why: LuCI rewrites the whole wireless config on Save, and it drops
-# UCI options that aren't checked in its form. multicast_to_unicast
+# UCI options that aren't checked in its form. multicast_to_unicast_all
 # defaults to unchecked, bss_transition/wnm_sleep_mode have NO LuCI
 # field at all. So any LuCI WiFi edit silently turns them off, even
 # on the radio you didn't touch. The one-shot wifi-preset only runs
 # on first boot, so it can't restore them.
+# NOTE: the wifi option is multicast_to_unicast_all (LuCI checkbox +
+# hostapd.sh). multicast_to_unicast is a bridge-port option, not a
+# wifi-iface one — hostapd and LuCI ignore it here. An older
+# wifi-preset set the wrong name; this script deletes it.
 #
 # This service runs on every boot (START=99, after wifi-preset) and
 # re-applies ONLY these three options per interface, if missing or
@@ -20,7 +24,12 @@ start() {
 	_changed=0
 	for _iface in default_radio0 default_radio1; do
 		uci -q get "wireless.$_iface" >/dev/null 2>&1 || continue
-		for _opt in multicast_to_unicast bss_transition wnm_sleep_mode; do
+		# Delete the wrong option if present (see NOTE above).
+		if uci -q get "wireless.$_iface.multicast_to_unicast" >/dev/null 2>&1; then
+			uci delete "wireless.$_iface.multicast_to_unicast"
+			_changed=1
+		fi
+		for _opt in multicast_to_unicast_all bss_transition wnm_sleep_mode; do
 			[ "$(uci -q get "wireless.$_iface.$_opt")" = "1" ] && continue
 			uci set "wireless.$_iface.$_opt='1'"
 			_changed=1
