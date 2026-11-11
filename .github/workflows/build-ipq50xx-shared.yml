@@ -775,6 +775,23 @@ jobs:
           mkdir -p artifacts diagnostics
           cd openwrt
           cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*factory.ubi ../artifacts/ 2>/dev/null || true
+          # Rename the firmware to the release tag name (board label,
+          # not operator model): the OpenWrt-generated name carries
+          # xiaomi_cr8806/cr8808, which misleads (same hardware,
+          # operator suffix only). The tag is computed here the same
+          # way as in the "Set release tag" step below — keep both in
+          # sync. Rename before sha256sums.txt so the checksum file
+          # and the release asset carry the new name.
+          case "${{ matrix.device }}" in
+            xiaomi_cr8806) HW="M79A" ;;
+            xiaomi_cr8808) HW="M81" ;;
+            *) HW="${{ matrix.device }}" ;;
+          esac
+          KERNEL="$(grep -E '^KERNEL_PATCHVER:=' target/linux/qualcommax/Makefile | head -1 | cut -d= -f2 | tr -d ' ' || true)"
+          [ -n "$KERNEL" ] || { echo "ERROR: cannot read KERNEL_PATCHVER" >&2; exit 1; }
+          RELEASE_TAG="${HW}-${KERNEL}-${{ inputs.firmware }}-${{ github.run_number }}-${{ github.run_attempt }}"
+          FACTORY_UBI="$(ls ../artifacts/*factory.ubi 2>/dev/null | head -1 || true)"
+          [ -n "$FACTORY_UBI" ] && mv "$FACTORY_UBI" "../artifacts/${RELEASE_TAG}-factory.ubi"
           cp bin/targets/qualcommax/ipq50xx/config.buildinfo ../diagnostics/ 2>/dev/null || true
           cp bin/targets/qualcommax/ipq50xx/feeds.buildinfo ../diagnostics/ 2>/dev/null || true
           # Stage the full resolved .config (upstream-style): the
