@@ -15,7 +15,7 @@
 # the flag is gone and it runs again on the next first boot.
 #
 # Preset (user 2026-11-10): SSID OpenWrt / OpenWrt_5G, psk2, key
-# 12345678, channel auto, 5G HE160, 2G HE20, 802.11k/v on, country CN.
+# 12345678, channel auto, 5G HE80, 2G HE20, 802.11k/v on, country CN.
 # Set by radio name only (radio0 = 2G, radio1 = 5G). No paths are
 # written: the device paths come from the image's own wireless defaults,
 # so a wrong baked path (the JDCloud #4 failure: extra 'libwrt' network,
