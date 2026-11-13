@@ -466,6 +466,48 @@ jobs:
           echo "=== CN 160MHz REGDB PATCH INSTALLED ==="
           ls -l "$PATCH_DIR/520-cn-160mhz.patch"
 
+      # REO fragment ring (ath11k, IPQ5018/QCN6122): the stock
+      # ath11k_hw_ipq5018_reo_setup() never writes REO1_MISC_CTL, so
+      # every rx fragment goes to REO2FW_DEST_RING, which nothing
+      # drains; once its 63 entries are full the whole REO block
+      # stops and the radio wedges until reboot (ADCDS rd03v2 #53).
+      # Adapted from ADCDS 999-999-rd03v2-990 for backports-7.2 as
+      # used here: hunk 3 dropped (QCN6122 shares ipq5018_regs;
+      # wcn6750_regs already carries the field), ipq5018_regs
+      # context adjusted. Verified locally with patch --dry-run
+      # against backports-7.2 hw.c after kuncy7 999-907.
+      - name: Patch ath11k REO fragment ring (IPQ5018)
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd openwrt
+          PATCH_DIR="package/kernel/mac80211/patches/nss-extra/ath11k"
+          test -d "$PATCH_DIR" || { echo "::error:: $PATCH_DIR not found" ; exit 1; }
+          test -f ../patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch || { echo "::error:: repo patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch not found"; exit 1; }
+          cp ../patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch "$PATCH_DIR/"
+          echo "=== ATH11K REO FRAGMENT PATCH INSTALLED ==="
+          ls -l "$PATCH_DIR/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch"
+
+      # PTK rekey workaround (wifi-scripts): neither radio advertises
+      # CAN_REPLACE_PTK0, so mac80211 replaces the pairwise key in
+      # place on rekey and the rekey fails (16-31 s outage ending in
+      # deauth). wpa_deny_ptk0_rekey=1 (default) disconnects and
+      # reconnects instead (0-1 s). From ADCDS tree-patches/0009,
+      # verified locally with patch --dry-run against the kuncy7
+      # base wifi-scripts files. OpenWrt applies <pkg>/patches/
+      # automatically during the package prepare stage.
+      - name: Patch wifi-scripts PTK rekey workaround
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd openwrt
+          PATCH_DIR="package/network/config/wifi-scripts/patches"
+          mkdir -p "$PATCH_DIR"
+          test -f ../patches/0009-wifi-scripts-wpa-deny-ptk0-rekey.patch || { echo "::error:: repo patches/0009-wifi-scripts-wpa-deny-ptk0-rekey.patch not found"; exit 1; }
+          cp ../patches/0009-wifi-scripts-wpa-deny-ptk0-rekey.patch "$PATCH_DIR/"
+          echo "=== WIFI-SCRIPTS PTK REKEY PATCH INSTALLED ==="
+          ls -l "$PATCH_DIR/0009-wifi-scripts-wpa-deny-ptk0-rekey.patch"
+
       - name: Fetch extra packages
         run: |
           set -Eeuo pipefail
