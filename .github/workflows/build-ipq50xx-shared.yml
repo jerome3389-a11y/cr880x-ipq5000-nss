@@ -567,6 +567,20 @@ jobs:
           } >> ../third-party-sources.txt
           echo "=== EXTRA PACKAGES OK ==="
 
+      # Config fragments must reproduce the committed device configs.
+      # configs/fragments/ is the authoring source; configs/combine.sh
+      # --check verifies the fragments' CONFIG set matches the
+      # committed configs/cr8806-256m.config and
+      # configs/cr8808-m81-256m.config exactly. If a fragment and a
+      # committed config drift apart, fail here instead of building
+      # from a config nobody reviewed.
+      - name: Verify config fragments
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          configs/combine.sh --check || { echo "::error::CONFIG FRAGMENTS do not reproduce the committed device configs — edit configs/fragments/ and re-run combine.sh"; exit 1; }
+          echo "=== CONFIG FRAGMENTS OK ==="
+
       - name: Apply device config
         run: |
           set -Eeuo pipefail
