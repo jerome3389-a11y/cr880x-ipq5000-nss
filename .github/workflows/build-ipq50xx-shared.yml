@@ -443,6 +443,34 @@ jobs:
           ./scripts/feeds list -r nss | grep -q qca-nss-drv && echo "nss feed OK"
           echo "=== FEEDS OK ==="
 
+      # Anchor checks (ADCDS-style): assert the exact upstream versions
+      # our repo patches depend on, BEFORE the build. If kuncy7 moves
+      # any of these, fail here loudly instead of shipping an image
+      # whose patch silently did not apply (the #39 regdb failure:
+      # patch written against the wrong db.txt version, twice).
+      - name: Anchor upstream versions for repo patches
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd openwrt
+          # 520-cn-160mhz.patch is written against wireless-regdb 2026.09.03
+          # (CN at db.txt lines 471-474, two separate lines).
+          grep -q '^PKG_VERSION:=2026.09.03$' package/firmware/wireless-regdb/Makefile || { echo "::error::ANCHOR FAILED: wireless-regdb PKG_VERSION is not 2026.09.03 — re-verify patches/520-cn-160mhz.patch against the new db.txt before building"; exit 1; }
+          echo "ANCHOR OK: wireless-regdb 2026.09.03"
+          # 999-990 REO patch is written against backports-7.2 hw.c after
+          # kuncy7 999-907 (which defines frag_dest_ring).
+          grep -q '^PKG_SOURCE_VERSION:=7.2$' package/kernel/mac80211/Makefile || { echo "::error::ANCHOR FAILED: mac80211 PKG_SOURCE_VERSION is not 7.2 — re-verify patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch against the new hw.c before building"; exit 1; }
+          echo "ANCHOR OK: mac80211 backports 7.2"
+          test -f package/kernel/mac80211/patches/nss-extra/ath11k/999-907-ath11k-Enable-NSS-for-ipq5018-qcn6122.patch || { echo "::error::ANCHOR FAILED: kuncy7 999-907 patch missing — the REO patch needs the frag_dest_ring it defines"; exit 1; }
+          echo "ANCHOR OK: kuncy7 999-907 present"
+          # ECM 9001 (QoS tags) is patch 0060 in the pinned nss feed (4fa071ab).
+          test -f feeds/nss/qca-nss-ecm/patches/0060-frontends-cmn-give-both-qos-tags-of-a-ported-connection-a-value.patch || { echo "::error::ANCHOR FAILED: nss feed lacks ECM 0060 patch — check the nss feed pin"; exit 1; }
+          echo "ANCHOR OK: nss feed ECM 0060 present"
+          # PTK 0009 touches ap.uc append_vars and the wifi-iface schema.
+          grep -q "'wpa_group_rekey', 'wpa_ptk_rekey', 'wpa_gmk_rekey', 'wpa_strict_rekey'," package/network/config/wifi-scripts/files-ucode/usr/share/ucode/wifi/ap.uc || { echo "::error::ANCHOR FAILED: ap.uc append_vars line changed — re-verify patches/0009-wifi-scripts-wpa-deny-ptk0-rekey.patch"; exit 1; }
+          echo "ANCHOR OK: ap.uc append_vars line"
+          echo "=== ALL ANCHORS OK ==="
+
       # CN 160 MHz (wireless-regdb): the stock regdb caps CN 5 GHz at
       # 80 MHz (5150-5250 @ 80, 5250-5350 @ 80 DFS) with NO-160MHZ, so
       # HE160 can never start on CN — the radio falls back to HT40
