@@ -13,10 +13,13 @@
 # wifi-preset set the wrong name; this script deletes it.
 #
 # This service runs on every boot (START=99, after wifi-preset) and
-# re-applies ONLY these three options per interface, if missing or
+# re-applies ONLY these options per interface, if missing or
 # off. It never touches SSID, password, channel, htmode, country,
 # or anything else you set in LuCI. If nothing changed, it exits
-# without reloading wifi.
+# without reloading wifi. The 802.11v extras wnm_sleep_mode_no_keys
+# ('1') and time_advertisement ('2') are also restored here; both
+# are read by ap.uc (lines 189/350), in the schema, and in LuCI's
+# roaming tab, but LuCI Save drops them when unchecked like the rest.
 
 START=99
 
@@ -29,11 +32,15 @@ start() {
 			uci delete "wireless.$_iface.multicast_to_unicast"
 			_changed=1
 		fi
-		for _opt in multicast_to_unicast_all bss_transition wnm_sleep_mode; do
+		for _opt in multicast_to_unicast_all bss_transition wnm_sleep_mode wnm_sleep_mode_no_keys; do
 			[ "$(uci -q get "wireless.$_iface.$_opt")" = "1" ] && continue
 			uci set "wireless.$_iface.$_opt='1'"
 			_changed=1
 		done
+		[ "$(uci -q get "wireless.$_iface.time_advertisement")" = "2" ] || {
+			uci set "wireless.$_iface.time_advertisement='2'"
+			_changed=1
+		}
 	done
 	[ "$_changed" = "1" ] || return 0
 	uci commit wireless || return 0
