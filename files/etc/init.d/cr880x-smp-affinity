@@ -1,0 +1,89 @@
+#!/bin/sh /etc/rc.common
+# IRQ affinity for the dual-core IPQ5000 (CR880x).
+# Adapted from ZqinKing/wrt_release smp_affinity (4-core IPQ60xx);
+# the 4-core mapping does NOT apply here (there is no CPU2/3).
+# WiFi RX (reo2host) is spread over both cores; wired (EDMA) is kept
+# on CPU1; NSS IRQs are left to the NSS tooling (qca-nss-drv init +
+# nss-irq-affinity) and are NOT touched here.
+# Switch: /etc/config/smp_affinity, option enable (default 1).
+# Missing IRQs are silently skipped (awk finds nothing in /proc/interrupts).
+
+START=93
+
+PROG=cr880x-smp-affinity
+
+log_msg() {
+    local irq_name="$1" affinity="$2" irq="$3"
+    msg="$(printf "Pinning IRQ($irq) %-24s to CPU ${affinity}\n" "$irq_name")"
+    logger -t "$PROG" "$msg"
+}
+
+cpus_to_bitmask() {
+    local bitmask=0
+    # shellcheck disable=2048
+    for range in ${*//,/ }; do
+        start="${range%-*}"
+        end="${range#*-}"
+        if [ -z "$end" ]; then
+            bitmask="$((bitmask | 1 << start))"
+        else
+            bitmask="$((bitmask | ((1 << (end - start + 1)) - 1) << start))"
+        fi
+    done
+    printf '%x' $bitmask
+}
+
+set_affinity() {
+    local irq_name="$1" affinity="$2" occurrence="${3:-1}" bitmask irq
+    awk -v irq_name="$1" -v occurrence="$occurrence" '
+        BEGIN{count=0}
+        $NF==irq_name {
+            if(++count==occurrence){
+                sub(/:$/,"",$1)
+                print $1
+            }
+        }' /proc/interrupts | while read -r irq; do
+        $enable_log && {
+            log_msg "$irq_name" "$affinity" "$irq"
+        }
+        bitmask=$(cpus_to_bitmask "$affinity") && echo "$bitmask" >"/proc/irq/$irq/smp_affinity"
+    done
+}
+
+enable_affinity() {
+    # WiFi RX: 4 reo2host destination rings spread over CPU0/1
+    set_affinity 'reo2host-destination-ring1' 0 1
+    set_affinity 'reo2host-destination-ring2' 1 1
+    set_affinity 'reo2host-destination-ring3' 0 1
+    set_affinity 'reo2host-destination-ring4' 1 1
+
+    # WiFi TX completions: spread over CPU0/1
+    set_affinity 'wbm2host-tx-completions-ring1' 1 1
+    set_affinity 'wbm2host-tx-completions-ring2' 0 1
+    set_affinity 'wbm2host-tx-completions-ring3' 1 1
+
+    # PPDU MAC interrupts: spread over CPU0/1
+    set_affinity 'ppdu-end-interrupts-mac1' 0 1
+    set_affinity 'ppdu-end-interrupts-mac2' 1 1
+    set_affinity 'ppdu-end-interrupts-mac3' 0 1
+
+    # Wired (EDMA) on CPU1
+    set_affinity 'edma_txcmpl' 1 1
+    set_affinity 'edma_rxfill' 1 1
+    set_affinity 'edma_rxdesc' 1 1
+    set_affinity 'edma_misc' 1 1
+
+    # Copy Engine: spread over CPU0/1
+    set_affinity 'bam_dma' 0 1
+    set_affinity 'bam_dma' 1 2
+}
+
+boot() {
+    local enable
+    config_load smp_affinity
+    config_get_bool enable "general" enable 1
+    config_get_bool enable_log "general" enable_log 1
+    [ "$enable" -eq 1 ] && enable=true || enable=false
+    [ "$enable_log" -eq 1 ] && enable_log=true || enable_log=false
+    $enable && enable_affinity
+}

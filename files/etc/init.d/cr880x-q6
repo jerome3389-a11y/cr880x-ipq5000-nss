@@ -1,0 +1,7 @@
+#!/bin/sh /etc/rc.common
+# Q6 (WCSS) crash dump policy: default disabled, so a Q6 root-PD crash
+# restarts in seconds instead of waiting up to five minutes for a
+# coredump to be collected. See /etc/config/cr880x-q6 (option coredump).
+START=18
+start() { /usr/sbin/cr880x-q6-policy; }
+reload() { start; }
