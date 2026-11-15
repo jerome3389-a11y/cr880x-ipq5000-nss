@@ -1,0 +1,76 @@
+diff --git a/drivers/net/wireless/ath/ath11k/core.h b/drivers/net/wireless/ath/ath11k/core.h
+index a0d725923ef24..6eca6dc67da16 100644
+--- a/drivers/net/wireless/ath/ath11k/core.h
++++ b/drivers/net/wireless/ath/ath11k/core.h
+@@ -818,6 +818,7 @@ struct ath11k_band_cap {
+ 	u32 phy_id;
+ 	u32 max_bw_supported;
+ 	u32 ht_cap_info;
++	u32 vht_cap_info;
+ 	u32 he_cap_info[2];
+ 	u32 he_mcs;
+ 	u32 he_cap_phy_info[PSOC_HOST_MAX_PHY_SIZE];
+diff --git a/drivers/net/wireless/ath/ath11k/mac.c b/drivers/net/wireless/ath/ath11k/mac.c
+index 1a237adaa37d1..1f405e200b0bc 100644
+--- a/drivers/net/wireless/ath/ath11k/mac.c
++++ b/drivers/net/wireless/ath/ath11k/mac.c
+@@ -5556,11 +5556,11 @@ static int ath11k_mac_op_conf_tx(struct ieee80211_hw *hw,
+ }
+ 
+ static struct ieee80211_sta_ht_cap
+-ath11k_create_ht_cap(struct ath11k *ar, u32 ar_ht_cap, u32 rate_cap_rx_chainmask)
++ath11k_create_ht_cap(struct ath11k *ar, u32 ar_ht_cap, u32 ar_vht_cap,
++		     u32 rate_cap_rx_chainmask)
+ {
+ 	int i;
+ 	struct ieee80211_sta_ht_cap ht_cap = {};
+-	u32 ar_vht_cap = ar->pdev->cap.vht_cap;
+ 
+ 	if (!(ar_ht_cap & WMI_HT_CAP_ENABLED))
+ 		return ht_cap;
+@@ -5769,7 +5769,7 @@ static void ath11k_mac_setup_ht_vht_cap(struct ath11k *ar,
+ 	struct ieee80211_supported_band *band;
+ 	u32 rate_cap_tx_chainmask;
+ 	u32 rate_cap_rx_chainmask;
+-	u32 ht_cap;
++	u32 ht_cap, vht_cap;
+ 
+ 	rate_cap_tx_chainmask = ar->cfg_tx_chainmask >> cap->tx_chain_mask_shift;
+ 	rate_cap_rx_chainmask = ar->cfg_rx_chainmask >> cap->rx_chain_mask_shift;
+@@ -5777,9 +5777,14 @@ static void ath11k_mac_setup_ht_vht_cap(struct ath11k *ar,
+ 	if (cap->supported_bands & WMI_HOST_WLAN_2G_CAP) {
+ 		band = &ar->mac.sbands[NL80211_BAND_2GHZ];
+ 		ht_cap = cap->band[NL80211_BAND_2GHZ].ht_cap_info;
++		/* A pdev without 5 GHz has no VHT capabilities of its own, but
++		 * the firmware reports them for 2 GHz too: use those for the
++		 * max A-MSDU length.
++		 */
++		vht_cap = cap->vht_cap ?: cap->band[NL80211_BAND_2GHZ].vht_cap_info;
+ 		if (ht_cap_info)
+ 			*ht_cap_info = ht_cap;
+-		band->ht_cap = ath11k_create_ht_cap(ar, ht_cap,
++		band->ht_cap = ath11k_create_ht_cap(ar, ht_cap, vht_cap,
+ 						    rate_cap_rx_chainmask);
+ 	}
+ 
+@@ -5790,7 +5795,7 @@ static void ath11k_mac_setup_ht_vht_cap(struct ath11k *ar,
+ 		ht_cap = cap->band[NL80211_BAND_5GHZ].ht_cap_info;
+ 		if (ht_cap_info)
+ 			*ht_cap_info = ht_cap;
+-		band->ht_cap = ath11k_create_ht_cap(ar, ht_cap,
++		band->ht_cap = ath11k_create_ht_cap(ar, ht_cap, cap->vht_cap,
+ 						    rate_cap_rx_chainmask);
+ 		band->vht_cap = ath11k_create_vht_cap(ar, rate_cap_tx_chainmask,
+ 						      rate_cap_rx_chainmask);
+diff --git a/drivers/net/wireless/ath/ath11k/wmi.c b/drivers/net/wireless/ath/ath11k/wmi.c
+index 82f85df481cbf..69405d8ca0901 100644
+--- a/drivers/net/wireless/ath/ath11k/wmi.c
++++ b/drivers/net/wireless/ath/ath11k/wmi.c
+@@ -454,6 +454,7 @@ ath11k_pull_mac_phy_cap_svc_ready_ext(struct ath11k_pdev_wmi *wmi_handle,
+ 		cap_band->phy_id = mac_phy_caps->phy_id;
+ 		cap_band->max_bw_supported = mac_phy_caps->max_bw_supported_2g;
+ 		cap_band->ht_cap_info = mac_phy_caps->ht_cap_info_2g;
++		cap_band->vht_cap_info = mac_phy_caps->vht_cap_info_2g;
+ 		cap_band->he_cap_info[0] = mac_phy_caps->he_cap_info_2g;
+ 		cap_band->he_cap_info[1] = mac_phy_caps->he_cap_info_2g_ext;
+ 		cap_band->he_mcs = mac_phy_caps->he_supp_mcs_2g;

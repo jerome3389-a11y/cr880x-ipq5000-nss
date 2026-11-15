@@ -504,6 +504,16 @@ jobs:
       # wcn6750_regs already carries the field), ipq5018_regs
       # context adjusted. Verified locally with patch --dry-run
       # against backports-7.2 hw.c after kuncy7 999-907.
+      # 998-ath11k-dp-rx-frag-double-free.patch (Adriel Santos,
+      # 2026-10-30): move the frag-0 kmemdup before the msdu is queued,
+      # so a -ENOMEM there cannot double-free it. 998-ath11k-2ghz-
+      # 7935-amsdu.patch (Christopher Griffin, 2026-11-07): a 2 GHz-only
+      # pdev has no VHT cap of its own but the firmware reports one for
+      # 2 GHz; use it for the max A-MSDU length instead of 7935 bytes.
+      # Both verified with patch --dry-run -p1 --fuzz=0 plus full apply
+      # against backports-7.2 after all 33 patches/ath11k/ (no 983
+      # Enable-VHT-for-2G patch in this base; the 2G-branch context
+      # B expects is intact).
       - name: Patch ath11k REO fragment ring (IPQ5018)
         run: |
           set -Eeuo pipefail
@@ -513,8 +523,14 @@ jobs:
           test -d "$PATCH_DIR" || { echo "::error:: $PATCH_DIR not found" ; exit 1; }
           test -f ../patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch || { echo "::error:: repo patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch not found"; exit 1; }
           cp ../patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch "$PATCH_DIR/"
+          test -f ../patches/998-ath11k-dp-rx-frag-double-free.patch || { echo "::error:: repo patches/998-ath11k-dp-rx-frag-double-free.patch not found"; exit 1; }
+          cp ../patches/998-ath11k-dp-rx-frag-double-free.patch "$PATCH_DIR/"
+          test -f ../patches/998-ath11k-2ghz-7935-amsdu.patch || { echo "::error:: repo patches/998-ath11k-2ghz-7935-amsdu.patch not found"; exit 1; }
+          cp ../patches/998-ath11k-2ghz-7935-amsdu.patch "$PATCH_DIR/"
           echo "=== ATH11K REO FRAGMENT PATCH INSTALLED ==="
           ls -l "$PATCH_DIR/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch"
+          ls -l "$PATCH_DIR/998-ath11k-dp-rx-frag-double-free.patch"
+          ls -l "$PATCH_DIR/998-ath11k-2ghz-7935-amsdu.patch"
 
       # PTK rekey workaround (wifi-scripts): neither radio advertises
       # CAN_REPLACE_PTK0, so mac80211 replaces the pairwise key in
