@@ -47,6 +47,14 @@ jobs:
   build:
     name: Build ${{ inputs.device }} (NSS FW ${{ inputs.firmware }})
     runs-on: ubuntu-24.04
+    # Workflow inputs as plain env vars: an input must never be
+    # interpolated directly into a run: block (a dispatched value is
+    # shell text once expanded). All run: blocks below use $DEVICE /
+    # $FIRMWARE / $BASE_REF instead of ${{ inputs.* }}.
+    env:
+      DEVICE: ${{ inputs.device }}
+      FIRMWARE: ${{ inputs.firmware }}
+      BASE_REF: ${{ inputs.base_ref }}
     timeout-minutes: 360
     # Serialize runs per device (upstream-style): two runs sharing the
     # cache and the release must never overlap, and a queued run must
@@ -66,6 +74,10 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           persist-credentials: false
+          # Full history: the release-changelog step runs git log
+          # against the previous release tag, which needs the tag's
+          # commit (and all older commits) present in the clone.
+          fetch-depth: 0
 
       # Log baseline (upstream-style): CPU/mem/disk first, so a later
       # disk/memory failure can be read against the starting state.
@@ -115,7 +127,7 @@ jobs:
           # Retry the fetch (upstream-style): a transient network flake
           # must not fail the whole run. Warn per attempt, back off.
           attempt=1
-          until git fetch --depth 1 origin "${{ inputs.base_ref }}"; do
+          until git fetch --depth 1 origin "$BASE_REF"; do
             if [ "$attempt" -ge 3 ]; then
               echo "::error::CLONE FAILED after 3 fetch attempts"
               exit 1
@@ -186,7 +198,7 @@ jobs:
           # Fail here, before the long build, if the fetch or the hash
           # check fails, instead of shipping an image whose Wi-Fi loads
           # the wrong board data (or none).
-          if [ "${{ inputs.device }}" = "xiaomi_cr8808" ]; then
+          if [ "$DEVICE" = "xiaomi_cr8808" ]; then
             HZY_COMMIT="ab1f9ffa5b5b62f252a5e87eb23f51f4e2544511"
             HZY_BASE="https://raw.githubusercontent.com/hzyitc/openwrt-redmi-ax3000/$HZY_COMMIT/package/firmware/ipq-wifi"
             mkdir -p ../files-xiaomi_cr8808/lib/firmware/ath11k/IPQ5018/hw1.0 \
@@ -341,7 +353,7 @@ jobs:
           set -Eeuo pipefail
           trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           TC_TREE="$(git -C openwrt rev-parse HEAD:toolchain)"
-          CCACHE_KEY="ipq50xx-${{ inputs.device }}-ccache-tc-$(printf '%s\n%s\n%s\n' "$TC_TREE" "$(gcc --version | head -1)" "$(as --version | head -1)" | sha256sum | cut -c1-16)"
+          CCACHE_KEY="ipq50xx-$DEVICE-ccache-tc-$(printf '%s\n%s\n%s\n' "$TC_TREE" "$(gcc --version | head -1)" "$(as --version | head -1)" | sha256sum | cut -c1-16)"
           echo "CCACHE_KEY=$CCACHE_KEY" >> "$GITHUB_ENV"
           echo "=== CCACHE KEY: $CCACHE_KEY ==="
 
@@ -408,9 +420,9 @@ jobs:
           cd openwrt
           # feeds.conf.default of the base tree already names the nss feed
           # (kuncy7/nss-packages, branch ipq50xx-rebase).
-          # TODO: pin the nss feed by commit. After a known-good build, copy
-          # the nss line from feeds.buildinfo into a feeds.conf, commit it in
-          # this repo, and copy it over feeds.conf.default here.
+          # The nss feed is pinned by commit in this repo's feeds.conf
+          # (4fa071ab), copied over feeds.conf.default above, so a
+          # branch tip can no longer move the build.
           # Log precision (IPQ6000-style): update one feed at a time, each
           # with its own marker, so a failure names the exact feed in the
           # log instead of dying inside a bulk update.
@@ -612,7 +624,7 @@ jobs:
           cp "../configs/${CONFIG_FILE}" .config
           # Firmware line selection. The driver is built for the firmware
           # shipped, so the two lines must never both be enabled.
-          if [ "${{ inputs.firmware }}" = "12.2" ]; then
+          if [ "$FIRMWARE" = "12.2" ]; then
             sed -i 's/^CONFIG_NSS_FIRMWARE_VERSION_12_5=y/# CONFIG_NSS_FIRMWARE_VERSION_12_5 is not set/' .config
             echo 'CONFIG_NSS_FIRMWARE_VERSION_12_2=y' >> .config
           fi
@@ -667,7 +679,7 @@ jobs:
           grep -q 'mcpu=cortex-a53' .config || { echo "::error::MISSING: O3 mcpu flag"; fail=1; }
           # NSS bridge-mgr is ipq807x/ipq60xx-only (see config comment),
           # so it is deliberately NOT checked here.
-          if [ "${{ inputs.firmware }}" = "12.5" ]; then
+          if [ "$FIRMWARE" = "12.5" ]; then
             grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_5=y$' .config || { echo "::error::MISSING: NSS_FIRMWARE_VERSION_12_5"; fail=1; }
           else
             grep -q '^CONFIG_NSS_FIRMWARE_VERSION_12_2=y$' .config || { echo "::error::MISSING: NSS_FIRMWARE_VERSION_12_2"; fail=1; }
@@ -704,12 +716,15 @@ jobs:
 
       # Overlay script syntax check (yingjiedev-style): a syntax error
       # in an overlay script currently surfaces only after a full build
-      # + flash. Fail fast here, before the long build.
+      # + flash. Fail fast here, before the long build. Covers every
+      # script dir the image ships (uci-defaults, hotplug, init.d,
+      # /usr/sbin, /sbin) — a broken init.d script breaks boot, so it
+      # must not slip past this check.
       - name: Validate overlay shell scripts
         run: |
           set -Eeuo pipefail
           trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          for f in files/etc/uci-defaults/* files/etc/hotplug.d/firmware/*; do
+          for f in files/etc/uci-defaults/* files/etc/hotplug.d/firmware/* files/etc/init.d/* files/usr/sbin/* files/sbin/*; do
             [ -f "$f" ] || continue
             echo "--- dash -n: $f ---"
             dash -n "$f" || { echo "::error::SYNTAX ERROR in $f"; exit 1; }
@@ -891,7 +906,7 @@ jobs:
           esac
           KERNEL="$(grep -E '^KERNEL_PATCHVER:=' target/linux/qualcommax/Makefile | head -1 | cut -d= -f2 | tr -d ' ' || true)"
           [ -n "$KERNEL" ] || { echo "ERROR: cannot read KERNEL_PATCHVER" >&2; exit 1; }
-          RELEASE_TAG="${HW}-${KERNEL}-${{ inputs.firmware }}-${{ github.run_number }}-${{ github.run_attempt }}"
+          RELEASE_TAG="${HW}-${KERNEL}-$FIRMWARE-${{ github.run_number }}-${{ github.run_attempt }}"
           FACTORY_UBI="$(ls ../artifacts/*factory.ubi 2>/dev/null | head -1 || true)"
           [ -n "$FACTORY_UBI" ] && mv "$FACTORY_UBI" "../artifacts/${RELEASE_TAG}-factory.ubi"
           cp bin/targets/qualcommax/ipq50xx/config.buildinfo ../diagnostics/ 2>/dev/null || true
@@ -928,7 +943,7 @@ jobs:
           {
             echo "### IPQ50xx NSS build"
             echo ""
-            echo "- Device: ${{ matrix.device }}, NSS firmware: ${{ inputs.firmware }}"
+            echo "- Device: ${{ matrix.device }}, NSS firmware: $FIRMWARE"
             echo "- Images:"
             ls -l artifacts/ | tail -n +2 | awk '{print "  - " $9 " (" $5 " bytes)"}'
             echo "- Feed versions: ${{ env.FEEDS_VERSION }}"
@@ -960,23 +975,29 @@ jobs:
           # creation would fail.
           KERNEL="$(grep -E '^KERNEL_PATCHVER:=' openwrt/target/linux/qualcommax/Makefile | head -1 | cut -d= -f2 | tr -d ' ' || true)"
           [ -n "$KERNEL" ] || { echo "ERROR: cannot read KERNEL_PATCHVER from base tree" >&2; exit 1; }
-          echo "RELEASE_TAG=${HW}-${KERNEL}-${{ inputs.firmware }}-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-          echo "RELEASE_NAME=${HW} NSS FW ${{ inputs.firmware }} - Kernel ${KERNEL} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=${HW}-${KERNEL}-$FIRMWARE-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+          echo "RELEASE_NAME=${HW} NSS FW $FIRMWARE - Kernel ${KERNEL} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
 
       # Release changelog (Update): list the repo commits since the
       # previous release, so each release shows what changed in this
-      # build. The scaffold repo is checked out (with full history),
-      # so git log works. If there is no previous release (first
-      # build), list the last 10 commits instead. The changelog is
-      # written to RELEASE_CHANGELOG via a heredoc so the multi-line
-      # value survives into the release body below.
+      # build. The scaffold repo is checked out with full history
+      # (fetch-depth: 0), so git log works. The previous release is
+      # the latest release whose tag starts with this run's board
+      # label (M79A- / M81-, from RELEASE_TAG), so a device=all run
+      # does not pick up the other device's just-published release.
+      # If there is no previous release (first build), list the last
+      # 10 commits instead. The changelog is written to
+      # RELEASE_CHANGELOG via a heredoc so the multi-line value
+      # survives into the release body below.
       - name: Generate release changelog
         if: success()
         run: |
           set -Eeuo pipefail
           trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
           cd "$GITHUB_WORKSPACE"
-          PREV_TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
+          # Board label of this run's tag (M79A / M81), from RELEASE_TAG.
+          TAG_PREFIX="${RELEASE_TAG%%-*}-"
+          PREV_TAG="$(gh release list --limit 50 --json tagName --jq -r --arg p "$TAG_PREFIX" '[.[].tagName | select(startswith($p))] | .[0] // empty' 2>/dev/null || true)"
           if [ -n "$PREV_TAG" ] && git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
             CHANGELOG="$(git log "$PREV_TAG"..HEAD --pretty=format:'- %s (%h)' --no-merges)"
           else
@@ -1072,7 +1093,7 @@ jobs:
       - name: Delete old caches
         continue-on-error: true
         run: |
-          for prefix in "ipq50xx-${{ inputs.device }}-ccache-" "ipq50xx-${{ inputs.device }}-staging-" "ipq50xx-${{ inputs.device }}-dl-"; do
+          for prefix in "ipq50xx-$DEVICE-ccache-" "ipq50xx-$DEVICE-staging-" "ipq50xx-$DEVICE-dl-"; do
             gh cache list --key "$prefix" --json key,createdAt --jq 'sort_by(.createdAt) | reverse | .[1:] | .[].key' 2>/dev/null | while read -r key; do
               [ -n "$key" ] && gh cache delete "$key" || true
             done
