@@ -496,11 +496,14 @@
 			};
 
 			/*
-			 * Port 5 connects to GMAC0 via PHY4, but all user ports are
-			 * assigned to conduit eth1 (GMAC1/port 0). Keeping port 5
-			 * enabled causes the switch to flood routed/WAN frames to
-			 * GMAC0, triggering high softirq packet drop storms on eth0.
-			 * (Upstream a67d696c5d, 2026-11-07: disable unused port 5.)
+			 * Port 5 connects to GMAC0 via PHY4 and is enabled as the
+			 * second conduit: user ports stay on eth1 (GMAC1/port 0)
+			 * while the WAN port uses eth0. The flood a67d696c5d
+			 * disabled this port for was a DSA bug (a standalone
+			 * port's tag_8021q VLAN was given to every CPU port);
+			 * the generic tag_8021q / PHY-to-PHY fixes upstream
+			 * (fbb9f5dfd, 2026-11-11) removed it, so the port is
+			 * enabled again.
 			 */
 			ethernet-port@5 {
 				reg = <5>;

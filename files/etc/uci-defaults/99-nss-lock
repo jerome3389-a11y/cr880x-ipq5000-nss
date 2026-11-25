@@ -1,0 +1,37 @@
+#!/bin/sh
+# Lock the NSS firmware line and memory profile for the pin-move test
+# build (test branch only). Runs once on first boot; the uci-defaults
+# mechanism removes this file afterwards, so a later user change is
+# never overwritten.
+# No set -e: a failed step must not abort the rest (same convention as
+# files/etc/uci-defaults/99-custom).
+#
+# Source verification (new pin, base b81f8e1d, feed be1d4f54):
+# - nss.general.firmware: package/nss/nss-tools/files/functions.sh,
+#   nss_fw_select() — allowed values are auto (or unset), 12.5, 12.2;
+#   anything else falls back to the build's line. Unset/auto on a board
+#   with MemTotal < 393216 KiB (384 MB) picks 12.2 when its blob exists,
+#   so without this lock a 256 MB board boots 12.2 even though the image
+#   was built for 12.5 (CONFIG_NSS_FIRMWARE_VERSION_12_5=y, and
+#   NSS_FIRMWARE_IPQ50XX_BOTH defaults y, so both blobs ship and
+#   qca-nss0-retail.bin links to 12.5). The test build wants 12.5.
+# - nss.general.mem_profile: same file, nss_drv_mem_profile() and
+#   nss_ath11k_mem_profile() — 256m maps to 3, i.e. low, for both the
+#   driver (feed patch 0153: 0 = driver choice, 1 high, 2 medium,
+#   3 low) and ath11k (1g=1, 512m=2, 256m=3). This matches the build
+#   default CONFIG_NSS_MEM_PROFILE_LOW=y and what auto would pick from
+#   the RAM size anyway; the lock only makes it explicit.
+# - Neither key has a UCI default anywhere upstream: qca-nss-drv.uci
+#   ships only enable_rps/enable_log, nss-dwmac.defaults (installed as
+#   /etc/uci-defaults/99-nss-topology) sets enabled/wifi_offload/
+#   fw_logbuf/fw_mask/vtu/... but not firmware/mem_profile, and
+#   98-nss-offload sets only packet_steering/flow_offloading.
+# - This file must NOT be merged into 99-custom: that file holds
+#   personal config only (Adblock, timezone) per its own header.
+#   NSS plane settings belong here, in their own file.
+
+uci set nss.general.firmware='12.5'
+uci set nss.general.mem_profile='256m'
+uci commit nss
+
+exit 0

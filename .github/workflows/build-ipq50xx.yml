@@ -37,9 +37,9 @@ on:
           - "12.5"
           - "12.2"
       base_ref:
-        description: "kuncy7/openwrt-nss-edma commit to build. Default is the HEAD of c3po-tag-8021q as seen on the repo page on 2026-11-02; refresh it when rebasing."
+        description: "kuncy7/openwrt-nss-edma commit to build. Default is the HEAD of c3po-tag-8021q as seen on the repo page on 2026-11-25; refresh it when rebasing."
         required: true
-        default: "13e8bc914709c4794b3ec7b0421d2038386e697e"
+        default: "b81f8e1d58d531a10383c22198b11233093c50f1"
 
 jobs:
   build-cr8806:
