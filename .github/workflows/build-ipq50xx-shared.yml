@@ -471,7 +471,7 @@ jobs:
           echo "ANCHOR OK: wireless-regdb 2026.09.03"
           # 999-990 REO patch is written against backports-7.2 hw.c after
           # kuncy7 999-907 (which defines frag_dest_ring).
-          grep -q '^PKG_SOURCE_VERSION:=7.2$' package/kernel/mac80211/Makefile || { echo "::error::ANCHOR FAILED: mac80211 PKG_SOURCE_VERSION is not 7.2 — re-verify patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch against the new hw.c before building"; exit 1; }
+          grep -q '^PKG_SOURCE_VERSION:=7.2$' package/kernel/mac80211/Makefile || { echo "::error::ANCHOR FAILED: mac80211 PKG_SOURCE_VERSION is not 7.2 — re-verify the ath11k patches against the new backports before building"; exit 1; }
           echo "ANCHOR OK: mac80211 backports 7.2"
           test -f package/kernel/mac80211/patches/nss-extra/ath11k/999-907-ath11k-Enable-NSS-for-ipq5018-qcn6122.patch || { echo "::error::ANCHOR FAILED: kuncy7 999-907 patch missing — the REO patch needs the frag_dest_ring it defines"; exit 1; }
           echo "ANCHOR OK: kuncy7 999-907 present"
@@ -533,14 +533,11 @@ jobs:
           cd openwrt
           PATCH_DIR="package/kernel/mac80211/patches/nss-extra/ath11k"
           test -d "$PATCH_DIR" || { echo "::error:: $PATCH_DIR not found" ; exit 1; }
-          test -f ../patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch || { echo "::error:: repo patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch not found"; exit 1; }
-          cp ../patches/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch "$PATCH_DIR/"
           test -f ../patches/998-ath11k-dp-rx-frag-double-free.patch || { echo "::error:: repo patches/998-ath11k-dp-rx-frag-double-free.patch not found"; exit 1; }
           cp ../patches/998-ath11k-dp-rx-frag-double-free.patch "$PATCH_DIR/"
           test -f ../patches/998-ath11k-2ghz-7935-amsdu.patch || { echo "::error:: repo patches/998-ath11k-2ghz-7935-amsdu.patch not found"; exit 1; }
           cp ../patches/998-ath11k-2ghz-7935-amsdu.patch "$PATCH_DIR/"
           echo "=== ATH11K REO FRAGMENT PATCH INSTALLED ==="
-          ls -l "$PATCH_DIR/999-999-cr880x-990-ath11k-reo-misc-ctl-ipq5018.patch"
           ls -l "$PATCH_DIR/998-ath11k-dp-rx-frag-double-free.patch"
           ls -l "$PATCH_DIR/998-ath11k-2ghz-7935-amsdu.patch"
 

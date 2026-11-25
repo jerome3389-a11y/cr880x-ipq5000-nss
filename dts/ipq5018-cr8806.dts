@@ -507,7 +507,6 @@
 				phy-handle = <&qca8337_4>;
 				phy-mode = "gmii";
 				ethernet = <&gmac0>;
-				status = "disabled";
 			};
 		};
 	};
