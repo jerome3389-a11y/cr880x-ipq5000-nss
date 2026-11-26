@@ -7,6 +7,14 @@
 # set on the calling job: a reusable workflow runs with its caller's
 # permissions.
 #
+# Two lines, one release per build (not one per board):
+# - main builds publish a stable release (--latest);
+# - builds from any other branch publish a beta prerelease (never
+#   --latest). A beta is never re-tagged into a stable: tested code
+#   merges to main, and main rebuilds the stable release.
+# Each release holds every device's firmware; its body states which
+# model each file is for.
+#
 # NOTE: the menu shows hardware board versions (M79A / M81) because that
 # is the distinction that matters — NOT the operator model numbers
 # (8806/8808/8809 are carrier suffixes; a CR8808 exists as both M79A and
@@ -64,3 +72,225 @@ jobs:
     permissions:
       contents: write
       actions: write
+
+  # One release per build (not one per board): after both device
+  # builds finish, collect every device's firmware into a single
+  # release. The release body states which model each file is for.
+  # Main builds publish a stable release (--latest); builds from any
+  # other branch publish a beta prerelease (never --latest).
+  release:
+    name: Release (one per build)
+    needs: [build-cr8806, build-cr8808]
+    # Run when at least one device built; a single-device run
+    # (device = M79A or M81) still gets a release with just that
+    # device's file.
+    if: always() && (needs.build-cr8806.result == 'success' || needs.build-cr8808.result == 'success')
+    runs-on: ubuntu-24.04
+    # Serialize release creation: two runs must never publish at the
+    # same time (the changelog reads the latest release tag).
+    concurrency:
+      group: ipq50xx-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+    env:
+      BRANCH: ${{ github.ref }}
+      FIRMWARE: ${{ inputs.firmware }}
+      BASE_REF: ${{ inputs.base_ref }}
+    steps:
+      - name: Checkout scaffold repo
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+        with:
+          persist-credentials: false
+          # Full history: the changelog step runs git log against the
+          # previous release tag, which needs the tag's commit (and
+          # all older commits) present in the clone.
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          mkdir -p all-artifacts release-files
+          # One artifact per device (ipq50xx-<device>-nss-fw<firmware>);
+          # a device that did not build has no artifact — that is
+          # normal for a single-device run, not an error.
+          gh run download "${{ github.run_id }}" --name "ipq50xx-xiaomi_cr8806-nss-fw$FIRMWARE" --dir all-artifacts/cr8806 2>/dev/null || echo "(M79A artifact not found)"
+          gh run download "${{ github.run_id }}" --name "ipq50xx-xiaomi_cr8808-nss-fw$FIRMWARE" --dir all-artifacts/cr8808 2>/dev/null || echo "(M81 artifact not found)"
+          # Collect every factory image, whatever sub-directory the
+          # download laid out (find, not a fixed path).
+          find all-artifacts -name '*factory.ubi' -exec cp {} release-files/ \; 2>/dev/null || true
+          ls -l release-files/
+          [ -n "$(ls release-files/*factory.ubi 2>/dev/null)" ] || { echo "::error::no factory.ubi found in build artifacts" >&2; exit 1; }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version and file list
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          # The version is read back from the firmware file names
+          # (<board>-<version>-factory.ubi), which the build jobs
+          # wrote — the file name is the ground truth. All files in
+          # one build must share one version; anything else fails.
+          VERSION=""
+          for f in release-files/*factory.ubi; do
+            b="$(basename "$f")"
+            v="${b%-factory.ubi}"
+            v="${v#*-}"
+            if [ -z "$VERSION" ]; then
+              VERSION="$v"
+            elif [ "$VERSION" != "$v" ]; then
+              echo "::error::firmware files disagree on version: $VERSION vs $v" >&2
+              exit 1
+            fi
+          done
+          [ -n "$VERSION" ] || { echo "::error::could not resolve version from file names" >&2; exit 1; }
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+-[0-9.]+-[0-9]+-[0-9]+(-beta)?$' || { echo "::error::version does not look like kernel-NSS-run-attempt: $VERSION" >&2; exit 1; }
+          KERNEL="${VERSION%%-*}"
+          if [ "$BRANCH" = "refs/heads/main" ]; then
+            IS_BETA="false"
+            RELEASE_NAME="CR880X NSS FW $FIRMWARE - Kernel $KERNEL (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})"
+            BETA_NOTE=""
+          else
+            IS_BETA="true"
+            RELEASE_NAME="CR880X NSS FW $FIRMWARE - Kernel $KERNEL (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }}) (Beta)"
+            BETA_NOTE="Beta (test build): this firmware has not been flash-verified on real hardware. It is published for testing; do not use it as your daily driver until it is confirmed."
+          fi
+          {
+            echo "VERSION=$VERSION"
+            echo "KERNEL=$KERNEL"
+            echo "IS_BETA=$IS_BETA"
+            echo "RELEASE_NAME=$RELEASE_NAME"
+            echo "BETA_NOTE=$BETA_NOTE"
+          } >> "$GITHUB_ENV"
+          # File list for the body: which model each file is for.
+          # Only devices actually built in this run are listed.
+          {
+            echo "FILE_LIST<<EOF"
+            for f in release-files/*factory.ubi; do
+              b="$(basename "$f")"
+              case "$b" in
+                M79A-*) echo "- M79A (CR8806 / CR8808 / CR8809 A版): $b" ;;
+                M81-*) echo "- M81 (CR8808 A版 / Redmi AX3000 / Xiaomi AX3000): $b" ;;
+                *) echo "- $b" ;;
+              esac
+            done
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          echo "=== VERSION: $VERSION (beta: $IS_BETA) ==="
+          ls -l release-files/
+
+      # Release changelog (Update): list the repo commits since the
+      # previous release, so each release shows what changed in this
+      # build. The previous release is the most recent release tag
+      # that exists as a git tag in this repo (per-model tags from
+      # before the unified change count too — they point at repo
+      # commits). If none resolves, list the last 10 commits.
+      - name: Generate release changelog
+        if: success()
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          cd "$GITHUB_WORKSPACE"
+          PREV_TAG=""
+          for t in $(gh release list --limit 50 --json tagName --jq -r '.[].tagName' 2>/dev/null || true); do
+            if git rev-parse "$t" >/dev/null 2>&1; then PREV_TAG="$t"; break; fi
+          done
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG="$(git log "$PREV_TAG"..HEAD --pretty=format:'- %s (%h)' --no-merges)"
+          else
+            CHANGELOG="$(git log -10 --pretty=format:'- %s (%h)' --no-merges)"
+          fi
+          [ -n "$CHANGELOG" ] || CHANGELOG="- (no changes recorded)"
+          {
+            echo "RELEASE_CHANGELOG<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          echo "=== PREV_TAG: ${PREV_TAG:-none} ==="
+          echo "$CHANGELOG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create draft release
+        if: success()
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd  # v1
+        with:
+          tag: ${{ env.VERSION }}
+          name: ${{ env.RELEASE_NAME }}
+          artifacts: "release-files/*"
+          allowUpdates: false
+          draft: true
+          prerelease: ${{ env.IS_BETA == 'true' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            CR880X NSS firmware (kernel ${{ env.KERNEL }}, NSS firmware ${{ env.FIRMWARE }}).
+
+            ${{ env.BETA_NOTE }}
+            ## Firmware files
+            ${{ env.FILE_LIST }}
+
+            Flash the file for your board version. Do not flash across models, board revisions (M79/M81) or A/B versions.
+
+            - Base tree: kuncy7/openwrt-nss-edma, branch c3po-tag-8021q, commit ${{ env.BASE_REF }}
+
+            ## Update (changes in this build)
+            ${{ env.RELEASE_CHANGELOG }}
+
+            Flash: trigsoft web UI (192.168.10.1) → factory.ubi. sysupgrade is unusable on this device (no platform upgrade script).
+
+            Default credentials (public defaults, change after flashing if you want):
+            - WiFi: SSID OpenWrt (2.4G) / OpenWrt_5G (5G), password 12345678 (WPA2)
+            - Root: password
+
+            WARNING: factory.ubi is an OpenWrt UBI image for the firmware UBI partition, not OEM firmware. Flashing it to any other partition bricks the device. Flash only the listed models; do not flash across models, board revisions (M79/M81) or A/B versions.
+
+      # Draft digest verification (yingjiedev-style, two-phase): download
+      # the just-created draft's firmware and compare it against the
+      # checksum files in the build diagnostics (not release files). A
+      # mismatch fails the job. Only the next step publishes the
+      # release, so a bad release can never go public.
+      - name: Verify release digests
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          attempt=1
+          until gh release download "$VERSION" --dir /tmp/release-verify --pattern '*' 2>/dev/null; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::RELEASE DOWNLOAD FAILED after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::release download attempt $attempt failed, retrying..."
+            sleep "$((attempt * 5))"
+            attempt=$((attempt + 1))
+          done
+          cd /tmp/release-verify
+          # The draft contains only firmware; each device's checksum
+          # file lives in its diagnostics (not in the release), so
+          # check every downloaded factory.ubi against the combined
+          # checksum lines.
+          find "$GITHUB_WORKSPACE/all-artifacts" -name 'sha256sums.txt' -exec cat {} + > /tmp/combined-sha256sums.txt
+          [ -s /tmp/combined-sha256sums.txt ] || { echo "::error::no sha256sums.txt found in build artifacts" >&2; exit 1; }
+          sha256sum -c /tmp/combined-sha256sums.txt || { echo "::error::RELEASE DIGEST MISMATCH"; exit 1; }
+          echo "=== RELEASE DIGESTS OK ==="
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publish (fanha99/kuncy7 + yingjiedev-style, two-phase): the draft
+      # above passed digest verification; only now make it public.
+      # Main publishes a stable release (--latest); any other branch
+      # publishes a beta prerelease (never --latest).
+      - name: Publish release
+        run: |
+          set -Eeuo pipefail
+          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
+          if [ "$BRANCH" = "refs/heads/main" ]; then
+            gh release edit "$VERSION" --draft=false --latest
+          else
+            gh release edit "$VERSION" --draft=false --prerelease
+          fi
+          echo "=== RELEASE PUBLISHED: $VERSION ==="
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

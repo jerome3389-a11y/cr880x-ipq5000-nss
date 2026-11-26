@@ -9,9 +9,12 @@
 # from the base tree's feeds.conf.default (kuncy7/nss-packages, branch
 # ipq50xx-rebase); pinning the feed by commit is a TODO, see below.
 #
-# On success, the workflow also publishes a GitHub Release with the
-# firmware and buildinfo files (one release per run; a re-run gets a new
-# tag because the run attempt is part of the tag).
+# On success, the build uploads its firmware + diagnostics as a
+# workflow artifact. The caller (build-ipq50xx.yml) collects every
+# device's artifact into ONE GitHub Release per build (one release
+# per version, all models' firmware in it; the body states which
+# model each file is for). A re-run gets a new tag because the run
+# attempt is part of the version.
 
 name: Build IPQ50xx NSS firmware (shared)
 
@@ -55,6 +58,7 @@ jobs:
       DEVICE: ${{ inputs.device }}
       FIRMWARE: ${{ inputs.firmware }}
       BASE_REF: ${{ inputs.base_ref }}
+      BRANCH: ${{ github.ref }}
     timeout-minutes: 360
     # Serialize runs per device (upstream-style): two runs sharing the
     # cache and the release must never overlap, and a queued run must
@@ -74,10 +78,9 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           persist-credentials: false
-          # Full history: the release-changelog step runs git log
-          # against the previous release tag, which needs the tag's
-          # commit (and all older commits) present in the clone.
-          fetch-depth: 0
+          # Default shallow checkout: no step here needs full history
+          # (the release changelog runs in the caller's release job,
+          # which does its own full-history checkout).
 
       # Log baseline (upstream-style): CPU/mem/disk first, so a later
       # disk/memory failure can be read against the starting state.
@@ -881,13 +884,16 @@ jobs:
           mkdir -p artifacts diagnostics
           cd openwrt
           cp bin/targets/qualcommax/ipq50xx/*"${{ matrix.device }}"*factory.ubi ../artifacts/ 2>/dev/null || true
-          # Rename the firmware to the release tag name (board label,
-          # not operator model): the OpenWrt-generated name carries
-          # xiaomi_cr8806/cr8808, which misleads (same hardware,
-          # operator suffix only). The tag is computed here the same
-          # way as in the "Set release tag" step below — keep both in
-          # sync. Rename before sha256sums.txt so the checksum file
-          # and the release asset carry the new name.
+          # Rename the firmware to <board>-<version>-factory.ubi
+          # (board label, not operator model): the OpenWrt-generated
+          # name carries xiaomi_cr8806/cr8808, which misleads (same
+          # hardware, operator suffix only). The version carries no
+          # board label (one release per build, not one per board);
+          # a build from any branch other than main is a beta, so
+          # its version carries a -beta suffix. The caller's release
+          # job reads the version back from this file name. Rename
+          # before sha256sums.txt so the checksum file and the
+          # release asset carry the new name.
           case "${{ matrix.device }}" in
             xiaomi_cr8806) HW="M79A" ;;
             xiaomi_cr8808) HW="M81" ;;
@@ -895,9 +901,10 @@ jobs:
           esac
           KERNEL="$(grep -E '^KERNEL_PATCHVER:=' target/linux/qualcommax/Makefile | head -1 | cut -d= -f2 | tr -d ' ' || true)"
           [ -n "$KERNEL" ] || { echo "ERROR: cannot read KERNEL_PATCHVER" >&2; exit 1; }
-          RELEASE_TAG="${HW}-${KERNEL}-$FIRMWARE-${{ github.run_number }}-${{ github.run_attempt }}"
+          VERSION="${KERNEL}-$FIRMWARE-${{ github.run_number }}-${{ github.run_attempt }}"
+          if [ "$BRANCH" != "refs/heads/main" ]; then VERSION="${VERSION}-beta"; fi
           FACTORY_UBI="$(ls ../artifacts/*factory.ubi 2>/dev/null | head -1 || true)"
-          [ -n "$FACTORY_UBI" ] && mv "$FACTORY_UBI" "../artifacts/${RELEASE_TAG}-factory.ubi"
+          [ -n "$FACTORY_UBI" ] && mv "$FACTORY_UBI" "../artifacts/${HW}-${VERSION}-factory.ubi"
           cp bin/targets/qualcommax/ipq50xx/config.buildinfo ../diagnostics/ 2>/dev/null || true
           cp bin/targets/qualcommax/ipq50xx/feeds.buildinfo ../diagnostics/ 2>/dev/null || true
           # Stage the full resolved .config (upstream-style): the
@@ -938,139 +945,14 @@ jobs:
             echo "- Feed versions: ${{ env.FEEDS_VERSION }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Set release tag
-        run: |
-          set -Eeuo pipefail
-          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          # Supported models per firmware profile, so every release
-          # states which hardware it may be flashed on. ALT models
-          # (same profile, same DTS) count as supported for install,
-          # on-device testing is tracked separately in the README.
-          # HW is the hardware subdivision used in the tag (M79A/M81).
-          case "${{ matrix.device }}" in
-            xiaomi_cr8806) SUPPORTED_MODELS="M79A (CR8806 / CR8808 / CR8809 A版)" ; HW="M79A" ;;
-            xiaomi_cr8808) SUPPORTED_MODELS="M81 (CR8808 A版 / Redmi AX3000 / Xiaomi AX3000) (均未测试)" ; HW="M81" ;;
-            *) SUPPORTED_MODELS="${{ matrix.device }}" ; HW="${{ matrix.device }}" ;;
-          esac
-          echo "SUPPORTED_MODELS=$SUPPORTED_MODELS" >> "$GITHUB_ENV"
-          # Tag format: hardware-kernel-NSS-run-attempt (no vendor
-          # prefix, no date, no operator model). The identifier is the
-          # hardware board version (M79A/M81) — CR8806/8808/8809 are
-          # the same hardware and must not appear in the tag. Kernel is
-          # read from the base tree (not hardcoded) so a base update
-          # moves the tag with it. Run + attempt stay as the uniqueness
-          # suffix: without them, two builds from the same HEAD (same
-          # kernel + NSS) would collide on the same tag and release
-          # creation would fail.
-          KERNEL="$(grep -E '^KERNEL_PATCHVER:=' openwrt/target/linux/qualcommax/Makefile | head -1 | cut -d= -f2 | tr -d ' ' || true)"
-          [ -n "$KERNEL" ] || { echo "ERROR: cannot read KERNEL_PATCHVER from base tree" >&2; exit 1; }
-          echo "RELEASE_TAG=${HW}-${KERNEL}-$FIRMWARE-${{ github.run_number }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-          echo "RELEASE_NAME=${HW} NSS FW $FIRMWARE - Kernel ${KERNEL} (Build #${{ github.run_number }}, attempt ${{ github.run_attempt }})" >> "$GITHUB_ENV"
-
-      # Release changelog (Update): list the repo commits since the
-      # previous release, so each release shows what changed in this
-      # build. The scaffold repo is checked out with full history
-      # (fetch-depth: 0), so git log works. The previous release is
-      # the latest release whose tag starts with this run's board
-      # label (M79A- / M81-, from RELEASE_TAG), so a device=all run
-      # does not pick up the other device's just-published release.
-      # If there is no previous release (first build), list the last
-      # 10 commits instead. The changelog is written to
-      # RELEASE_CHANGELOG via a heredoc so the multi-line value
-      # survives into the release body below.
-      - name: Generate release changelog
-        if: github.ref == 'refs/heads/main'
-        run: |
-          set -Eeuo pipefail
-          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          cd "$GITHUB_WORKSPACE"
-          # Board label of this run's tag (M79A / M81), from RELEASE_TAG.
-          TAG_PREFIX="${RELEASE_TAG%%-*}-"
-          PREV_TAG="$(gh release list --limit 50 --json tagName --jq -r --arg p "$TAG_PREFIX" '[.[].tagName | select(startswith($p))] | .[0] // empty' 2>/dev/null || true)"
-          if [ -n "$PREV_TAG" ] && git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
-            CHANGELOG="$(git log "$PREV_TAG"..HEAD --pretty=format:'- %s (%h)' --no-merges)"
-          else
-            CHANGELOG="$(git log -10 --pretty=format:'- %s (%h)' --no-merges)"
-          fi
-          [ -n "$CHANGELOG" ] || CHANGELOG="- (no changes recorded)"
-          {
-            echo "RELEASE_CHANGELOG<<EOF"
-            echo "$CHANGELOG"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
-          echo "=== RELEASE CHANGELOG ==="
-          echo "$CHANGELOG"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create draft release
-        if: github.ref == 'refs/heads/main'
-        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd  # v1
-        with:
-          tag: ${{ env.RELEASE_TAG }}
-          name: ${{ env.RELEASE_NAME }}
-          artifacts: "artifacts/*"
-          allowUpdates: false
-          draft: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-          body: |
-            IPQ50xx NSS firmware (kernel 6.18, NSS firmware ${{ inputs.firmware }}).
-
-            - Device profile: ${{ matrix.device }}
-            - Supported models: ${{ env.SUPPORTED_MODELS }}
-            - Base tree: kuncy7/openwrt-nss-edma, branch c3po-tag-8021q, commit ${{ inputs.base_ref }}
-
-            ## Update (changes in this build)
-            ${{ env.RELEASE_CHANGELOG }}
-
-            Flash: trigsoft web UI (192.168.10.1) → factory.ubi. sysupgrade is unusable on this device (no platform upgrade script).
-
-            Default credentials (public defaults, change after flashing if you want):
-            - WiFi: SSID OpenWrt (2.4G) / OpenWrt_5G (5G), password 12345678 (WPA2)
-            - Root: password
-
-            WARNING: factory.ubi is an OpenWrt UBI image for the firmware UBI partition, not OEM firmware. Flashing it to any other partition bricks the device. Flash only the listed models; do not flash across models, board revisions (M79/M81) or A/B versions.
-
-      # Draft digest verification (yingjiedev-style, two-phase): download
-      # the just-created draft's firmware and compare it against
-      # diagnostics/sha256sums.txt (the checksum file is a diagnostic,
-      # not a release file). A mismatch fails the job. Only the next
-      # step publishes the release, so a bad release can never go public.
-      - name: Verify release digests
-        if: github.ref == 'refs/heads/main'
-        run: |
-          set -Eeuo pipefail
-          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          attempt=1
-          until gh release download "$RELEASE_TAG" --dir /tmp/release-verify --pattern '*' 2>/dev/null; do
-            if [ "$attempt" -ge 3 ]; then
-              echo "::error::RELEASE DOWNLOAD FAILED after 3 attempts"
-              exit 1
-            fi
-            echo "::warning::release download attempt $attempt failed, retrying..."
-            sleep "$((attempt * 5))"
-            attempt=$((attempt + 1))
-          done
-          cd /tmp/release-verify
-          # The draft contains only firmware; the checksum file lives in
-          # diagnostics/ (not in the release), so check the downloaded
-          # factory.ubi against its line there.
-          grep 'factory\.ubi' "$GITHUB_WORKSPACE/diagnostics/sha256sums.txt" | sha256sum -c - || { echo "::error::RELEASE DIGEST MISMATCH"; exit 1; }
-          echo "=== RELEASE DIGESTS OK ==="
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Publish (fanha99/kuncy7 + yingjiedev-style, two-phase): the draft
-      # above passed digest verification; only now make it public.
-      - name: Publish release
-        if: github.ref == 'refs/heads/main'
-        run: |
-          set -Eeuo pipefail
-          trap 'status=$?; printf "ERROR: command failed at line %s (exit %s): %s\n" "$LINENO" "$status" "$BASH_COMMAND" >&2; exit "$status"' ERR
-          gh release edit "$RELEASE_TAG" --draft=false --latest
-          echo "=== RELEASE PUBLISHED: $RELEASE_TAG ==="
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # No release steps here: the caller (build-ipq50xx.yml) runs a
+      # release job after every device build, collecting all devices'
+      # artifacts into ONE release per build (one release per version;
+      # the body states which model each file is for). Main builds
+      # publish a stable release; builds from any other branch publish
+      # a beta prerelease. A beta is never re-tagged into a stable:
+      # tested code merges to main, and main rebuilds the stable
+      # release.
 
       # Cleanup runs only when the build succeeded, and never fails the
       # job: the release above is already published by then, and the user
